@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Baseline Content Security Policy for static GitHub Pages deployment:
+      - script-src 'self': blocks injected inline scripts
+      - worker-src 'self' blob:: MapLibre GL JS spawns WebGL tile-parsing Web Workers from blob: URLs
+      - connect-src: whitelists only our keyless geo providers (Photon, Nominatim, OSRM, OpenFreeMap)
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://tiles.openfreemap.org; font-src 'self' data: https://tiles.openfreemap.org; worker-src 'self' blob:; connect-src 'self' https://photon.komoot.io https://nominatim.openstreetmap.org https://router.project-osrm.org https://routing.openstreetmap.de https://tiles.openfreemap.org; object-src 'none'; base-uri 'self';"
+    />
+    <title>Routation — Multi-Stop Route Optimizer</title>
+  </head>
+  <body class="bg-slate-950 text-slate-100 antialiased">
+    <div id="app"></div>
+    <script type="module" src="/src/web/main.ts"></script>
+  </body>
+</html>

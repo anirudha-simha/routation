@@ -1,0 +1,18 @@
+# Personal notes + AI context & scratch space (never committed)
+.local/
+plan.md
+AGENTS.md
+
+node_modules/
+dist/
+dist-skill/
+build/
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+.route-optimizer-cache.json
+optimized-route-map.html
+coverage/
+.vite/

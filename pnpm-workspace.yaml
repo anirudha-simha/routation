@@ -1,0 +1,5 @@
+# Single-package repo; pnpm 11+ reads supply-chain and build settings from this file.
+allowBuilds:
+  esbuild: true
+minimumReleaseAge: 1440
+blockExoticSubdeps: true
