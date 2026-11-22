@@ -17,7 +17,7 @@
     "@lucide/svelte": "^1.0.0",
     "bits-ui": "^2.21.0",
     "lz-string": "^1.5.0",
-    "maplibre-gl": "^6.4.1",
+    "maplibre-gl": "6.4.1",
     "paneforge": "^1.0.2",
     "papaparse": "^5.5.0",
     "runed": "^0.38.0",

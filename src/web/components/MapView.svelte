@@ -1,6 +1,9 @@
 <script lang="ts">
   import * as maplibregl from "maplibre-gl";
+  import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
   import { watch } from "runed";
+
+  maplibregl.setWorkerUrl(workerUrl);
   import {
     GeoJSONSource,
     LineLayer,
@@ -110,8 +113,7 @@
     <GeoJSONSource data={routeStore.result.routeGeoJson}>
       <LineLayer
         paint={{
-          "line-color":
-            routeStore.status === "stale" ? "#8b5cf6" : "#3b82f6",
+          "line-color": routeStore.status === "stale" ? "#8b5cf6" : "#3b82f6",
           "line-width": 4,
           "line-opacity": routeStore.status === "stale" ? 0.75 : 0.9,
         }}
