@@ -16,13 +16,23 @@ export class GoogleMapsLinkBuilder {
     return `${stop.lat.toFixed(6)},${stop.lng.toFixed(6)}`;
   }
 
+  /**
+   * Formats a place query that includes BOTH the POI `name` (e.g. "Painted Ladies (Alamo Square)")
+   * and the postal `fullAddress` so Google Maps resolves the named Place Card (reviews, photos, hours)
+   * rather than falling back to a bare street intersection.
+   */
   private static formatPlaceQuery(stop: GeoLocation): string {
-    return stop.fullAddress.trim() || GoogleMapsLinkBuilder.formatCoords(stop);
+    const name = stop.name?.trim();
+    const addr = stop.fullAddress?.trim();
+    if (name && addr && !addr.toLowerCase().includes(name.toLowerCase())) {
+      return `${name}, ${addr}`;
+    }
+    return addr || name || GoogleMapsLinkBuilder.formatCoords(stop);
   }
 
   /**
    * Builds a keyless Google Maps Universal (`api=1`) Place Search link for a single location.
-   * Clicking this opens Google Maps (or the native mobile app) pinned to the location.
+   * Clicking this opens Google Maps (or the native mobile app) pinned to the location's Place Card.
    */
   static buildPlaceSearchUrl(stop: GeoLocation): string {
     const params = new URLSearchParams({
@@ -34,11 +44,11 @@ export class GoogleMapsLinkBuilder {
 
   /**
    * Builds a keyless Google Maps `output=embed` URL suitable for an on-demand `<iframe>` preview.
+   * Note: We omit `ll=` when a named query is present so Google Maps snaps to the matched POI card.
    */
   static buildPlaceEmbedUrl(stop: GeoLocation, zoom = 15): string {
     const params = new URLSearchParams({
       q: GoogleMapsLinkBuilder.formatPlaceQuery(stop),
-      ll: GoogleMapsLinkBuilder.formatCoords(stop),
       z: String(zoom),
       output: "embed",
     });

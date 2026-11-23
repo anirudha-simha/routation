@@ -3,6 +3,7 @@ export * from "./context";
 export * from "./geo";
 export * from "./geo/geocoder";
 export * from "./geo/photon-geocoder";
+export * from "./geo/info-card-generator";
 export * from "./solvers/solver";
 export * from "./solvers/no-solver";
 export * from "./solvers/osrm";

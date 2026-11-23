@@ -12,6 +12,8 @@ interface PhotonProperties {
   state?: string;
   postcode?: string;
   country?: string;
+  osm_type?: string;
+  osm_id?: number;
 }
 
 export class PhotonGeoCoder extends AddressLookup {
@@ -80,6 +82,8 @@ export class PhotonGeoCoder extends AddressLookup {
     if (!p || !coords) return null;
 
     const [lng, lat] = coords;
+    const osmId =
+      p.osm_type && p.osm_id ? `${p.osm_type.toUpperCase()}${p.osm_id}` : undefined;
 
     return new GeoLocation({
       name: p.name,
@@ -91,6 +95,7 @@ export class PhotonGeoCoder extends AddressLookup {
       state: p.state,
       zip: p.postcode,
       country: p.country,
+      osmId,
     });
   }
 }

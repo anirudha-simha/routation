@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildBridgedGoogleMapsLinks,
   chunkWithOverlap,
   GeoLocation,
   GoogleMapsLinkBuilder,
+  InfoCardGenerator,
 } from "../src/core";
 
 function makeFakeStop(index: number): GeoLocation {
@@ -58,16 +59,102 @@ describe("buildBridgedGoogleMapsLinks", () => {
 });
 
 describe("GoogleMapsLinkBuilder place search & embed URLs", () => {
-  it("builds official api=1 place search URL and keyless output=embed URL", () => {
+  it("includes both POI name and fullAddress so Google Maps resolves the Place Card", () => {
     const stop = makeFakeStop(1);
     const searchUrl = GoogleMapsLinkBuilder.buildPlaceSearchUrl(stop);
     const embedUrl = GoogleMapsLinkBuilder.buildPlaceEmbedUrl(stop);
 
     expect(searchUrl).toBe(
-      "https://www.google.com/maps/search/?api=1&query=1+Market+St%2C+San+Francisco%2C+CA"
+      "https://www.google.com/maps/search/?api=1&query=Stop+1%2C+1+Market+St%2C+San+Francisco%2C+CA"
     );
     expect(embedUrl).toContain("https://maps.google.com/maps?");
     expect(embedUrl).toContain("output=embed");
-    expect(embedUrl).toContain("q=1+Market+St%2C+San+Francisco%2C+CA");
+    expect(embedUrl).toContain("q=Stop+1%2C+1+Market+St%2C+San+Francisco%2C+CA");
+  });
+});
+
+describe("InfoCardGenerator", () => {
+  it("merges OSM extratags and Wikipedia summary while sanitizing untrusted URLs", async () => {
+    const fakeFetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("nominatim.openstreetmap.org")) {
+        return new Response(
+          JSON.stringify({
+            name: "Painted Ladies",
+            extratags: {
+              opening_hours: "Mo-Su 09:00-18:00",
+              website: "https://sfrecpark.org/painted-ladies",
+              phone: "+1 415-831-2700",
+              wikipedia: "en:Painted Ladies",
+            },
+          }),
+          { status: 200 }
+        );
+      }
+      if (url.includes("en.wikipedia.org/w/api.php")) {
+        return new Response(
+          JSON.stringify({
+            query: {
+              pages: {
+                "123": {
+                  title: "Painted Ladies",
+                  description: "Row of Victorian houses in San Francisco",
+                  extract:
+                    "In American architecture, painted ladies are Victorian houses.",
+                  thumbnail: {
+                    source:
+                      "https://thumb.wikimedia.org/wikipedia/commons/thumb/a.jpg",
+                  },
+                  fullurl: "https://en.wikipedia.org/wiki/Painted_Ladies",
+                },
+              },
+            },
+          }),
+          { status: 200 }
+        );
+      }
+      return new Response("Not Found", { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const generator = new InfoCardGenerator(fakeFetch);
+    const stop = new GeoLocation({
+      name: "Painted Ladies (Alamo Square)",
+      street: "Steiner St & Hayes St",
+      city: "San Francisco",
+      state: "California",
+      lat: 37.7762,
+      lng: -122.4328,
+    });
+
+    const card = await generator.generate(stop);
+    expect(card.title).toBe("Painted Ladies (Alamo Square)");
+    expect(card.subtitle).toBe("Row of Victorian houses in San Francisco");
+    expect(card.openingHours).toBe("Mo-Su 09:00-18:00");
+    expect(card.websiteUrl).toBe("https://sfrecpark.org/painted-ladies");
+    expect(card.thumbnailUrl).toContain("thumb.wikimedia.org");
+    expect(card.wikipediaUrl).toBe("https://en.wikipedia.org/wiki/Painted_Ladies");
+  });
+
+  it("converts OSM File: and commons.wikimedia.org/wiki/File: tags to Special:FilePath thumbnails", () => {
+    expect(
+      InfoCardGenerator.resolveCommonsThumbnail("File:Alamo Square SF.jpg")
+    ).toBe(
+      "https://commons.wikimedia.org/wiki/Special:FilePath/Alamo_Square_SF.jpg?width=320"
+    );
+    expect(
+      InfoCardGenerator.resolveCommonsThumbnail(
+        "https://commons.wikimedia.org/wiki/File:Alamo_Square_SF.jpg"
+      )
+    ).toBe(
+      "https://commons.wikimedia.org/wiki/Special:FilePath/Alamo_Square_SF.jpg?width=320"
+    );
+  });
+
+  it("rejects dangerous non-HTTP schemes in sanitizeHttpUrl", () => {
+    expect(InfoCardGenerator.sanitizeHttpUrl("javascript:alert(1)")).toBeNull();
+    expect(InfoCardGenerator.sanitizeHttpUrl("data:text/html,hi")).toBeNull();
+    expect(
+      InfoCardGenerator.sanitizeHttpUrl("https://anirudhasimha.com")?.hostname
+    ).toBe("anirudhasimha.com");
   });
 });

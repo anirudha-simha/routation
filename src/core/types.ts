@@ -66,6 +66,8 @@ export class GeoLocation implements LatLng {
   state?: string;
   zip?: string;
   country?: string;
+  /** Optional OpenStreetMap identifier (e.g. "W123456" or "N7890") for exact Nominatim lookup */
+  osmId?: string;
   /** Street-level address (e.g. "57 Van Steuben Road" or "32 South Road #302"), falling back to name or coordinates. */
   address: string;
   /** Complete postal address for Google Maps & full display . */
@@ -87,6 +89,7 @@ export class GeoLocation implements LatLng {
     state?: string;
     zip?: string;
     country?: string;
+    osmId?: string;
   }) {
     this.lat = init.lat;
     this.lng = init.lng;
@@ -97,6 +100,7 @@ export class GeoLocation implements LatLng {
     this.state = init.state?.trim() || undefined;
     this.zip = init.zip?.trim() || undefined;
     this.country = init.country?.trim() || undefined;
+    this.osmId = init.osmId?.trim() || undefined;
 
     // 1. Assemble street-level line (e.g. "32 South Road #302"), falling back to name or coordinates
     const coordsFallback = `${init.lat.toFixed(5)}, ${init.lng.toFixed(5)}`;
