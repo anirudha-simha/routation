@@ -3,110 +3,110 @@
   import { PaneGroup, Pane, PaneResizer, type PaneAPI } from "paneforge";
   import Sidebar from "./components/Sidebar.svelte";
   import MapView from "./components/MapView.svelte";
-  import { routeStore } from "./state.svelte";
 
   const isDesktop = new MediaQuery("(min-width: 768px)");
 
-  let mapPane = $state<PaneAPI | undefined>(undefined);
-  let drawerPane = $state<PaneAPI | undefined>(undefined);
-  let isMapCollapsed = $state(false);
-  let isDrawerCollapsed = $state(false);
+  let firstPane = $state<PaneAPI | undefined>(undefined);
+  let secondPane = $state<PaneAPI | undefined>(undefined);
+  let isFirstCollapsed = $state(false);
+  let isSecondCollapsed = $state(false);
 
-  function restoreMobileSplit() {
-    mapPane?.resize(42);
-    drawerPane?.resize(58);
+  let isAnyCollapsed = $derived(isFirstCollapsed || isSecondCollapsed);
+
+  function restoreSplit() {
+    firstPane?.resize(isDesktop.current ? 32 : 42);
+    secondPane?.resize(isDesktop.current ? 68 : 58);
   }
 </script>
 
+{#snippet mapArea()}
+  <main class="h-full w-full relative min-h-0 min-w-0">
+    <MapView />
+  </main>
+{/snippet}
+
+{#snippet resizerLip()}
+  <PaneResizer
+    aria-label="Drag or click to resize panels"
+    title={isAnyCollapsed ? "Click or drag to expand panel" : "Drag to resize"}
+    ondblclick={restoreSplit}
+    onclick={() => {
+      if (isAnyCollapsed) restoreSplit();
+    }}
+    class="group shrink-0 flex items-center justify-center bg-slate-900 border-slate-800 hover:bg-slate-800 active:bg-blue-500/20 touch-none select-none transition-all {isDesktop.current
+      ? `border-x cursor-col-resize ${isAnyCollapsed ? 'w-4 bg-slate-800/90 border-slate-700' : 'w-2.5'}`
+      : `border-y cursor-row-resize ${isAnyCollapsed ? 'h-6 bg-slate-800/90 border-slate-700' : 'h-4'}`}"
+  >
+    <div
+      class="rounded-full transition-colors {isAnyCollapsed
+        ? 'bg-blue-400 group-hover:bg-blue-300'
+        : 'bg-slate-600 group-hover:bg-blue-400'} {isDesktop.current
+        ? 'h-10 w-1'
+        : 'h-1.5 w-12'}"
+    ></div>
+  </PaneResizer>
+{/snippet}
+
 <div class="flex h-dvh w-screen overflow-hidden bg-slate-950">
   {#if isDesktop.current}
-    <!-- Desktop: Left Sidebar (32%, collapsible to 0%) | Right Map (68%) -->
+    <!-- Desktop: Left Sidebar (32%) | Right Map (68%) -->
     <PaneGroup
       direction="horizontal"
       autoSaveId="routation-desktop-split"
       class="h-full w-full"
     >
       <Pane
+        bind:this={firstPane}
         defaultSize={32}
         minSize={18}
         maxSize={60}
         collapsible={true}
         collapsedSize={0}
+        onCollapse={() => (isFirstCollapsed = true)}
+        onExpand={() => (isFirstCollapsed = false)}
       >
         <Sidebar />
       </Pane>
-      <PaneResizer
-        class="w-1.5 bg-slate-800 hover:bg-blue-500 active:bg-blue-400 transition-colors cursor-col-resize"
-      />
-      <Pane defaultSize={68}>
-        <main class="h-full w-full relative min-h-0 min-w-0">
-          <MapView />
-        </main>
+      {@render resizerLip()}
+      <Pane
+        bind:this={secondPane}
+        defaultSize={68}
+        minSize={20}
+        collapsible={true}
+        collapsedSize={0}
+        onCollapse={() => (isSecondCollapsed = true)}
+        onExpand={() => (isSecondCollapsed = false)}
+      >
+        {@render mapArea()}
       </Pane>
     </PaneGroup>
   {:else}
-    <!-- Mobile: Top Map | Draggable Bottom Sheet Drawer (both collapsible to 0% for full-screen view) -->
+    <!-- Mobile: Top Map (42%) | Bottom Drawer Sidebar (58%) -->
     <PaneGroup
       direction="vertical"
       autoSaveId="routation-mobile-split"
       class="h-full w-full"
     >
       <Pane
-        bind:this={mapPane}
+        bind:this={firstPane}
         defaultSize={42}
         minSize={15}
         collapsible={true}
         collapsedSize={0}
-        onCollapse={() => (isMapCollapsed = true)}
-        onExpand={() => (isMapCollapsed = false)}
+        onCollapse={() => (isFirstCollapsed = true)}
+        onExpand={() => (isFirstCollapsed = false)}
       >
-        <main class="h-full w-full relative min-h-0 min-w-0">
-          <MapView />
-        </main>
+        {@render mapArea()}
       </Pane>
-
-      <!-- Drawer lip / grab bar: always stays visible at the top or bottom edge when a pane is collapsed -->
-      <PaneResizer
-        aria-label="Drag to resize map and route planner"
-        ondblclick={restoreMobileSplit}
-        class="h-7 shrink-0 bg-slate-900 border-y border-slate-800 hover:bg-slate-800 active:bg-blue-500/20 flex items-center justify-between px-3 cursor-row-resize touch-none select-none transition-colors"
-      >
-        <span class="text-[11px] font-medium text-slate-400">
-          {#if isDrawerCollapsed}
-            ▲ Pull up Route Planner ({routeStore.stops.length} stops)
-          {:else if isMapCollapsed}
-            ▼ Pull down Map
-          {:else}
-            Routation ({routeStore.stops.length} stops)
-          {/if}
-        </span>
-
-        <div class="h-1.5 w-10 rounded-full bg-slate-600"></div>
-
-        {#if isDrawerCollapsed || isMapCollapsed}
-          <button
-            type="button"
-            onclick={(e) => {
-              e.stopPropagation();
-              restoreMobileSplit();
-            }}
-            class="rounded bg-blue-600 px-2 py-0.5 text-[10px] font-semibold text-white hover:bg-blue-500 cursor-pointer"
-          >
-            Split View
-          </button>
-        {:else}
-          <span class="text-[10px] text-slate-500">Drag ↕</span>
-        {/if}
-      </PaneResizer>
-
+      {@render resizerLip()}
       <Pane
-        bind:this={drawerPane}
+        bind:this={secondPane}
         defaultSize={58}
         minSize={15}
         collapsible={true}
         collapsedSize={0}
-        onCollapse={() => (isDrawerCollapsed = true)}
-        onExpand={() => (isDrawerCollapsed = false)}
+        onCollapse={() => (isSecondCollapsed = true)}
+        onExpand={() => (isSecondCollapsed = false)}
       >
         <Sidebar />
       </Pane>

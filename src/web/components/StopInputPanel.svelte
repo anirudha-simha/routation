@@ -1,24 +1,14 @@
 <script lang="ts">
-  import type { RouteMode } from "../../core";
   import { routeStore } from "../state.svelte";
+  import { MODE_OPTIONS } from "../ui-meta";
   import CollapsibleSection from "./CollapsibleSection.svelte";
   import LocationInput from "./LocationInput.svelte";
 
-  const MODE_HINTS: Record<RouteMode, string> = {
-    ROUND_TRIP_FASTEST:
-      "Starts and ends at Home using whichever loop direction the solver finds fastest overall.",
-    ROUND_TRIP_END_CLOSEST_TO_HOME:
-      "Starts and ends at Home. Drives out to your farthest stop first and sweeps progressively back toward Home.",
-    ROUND_TRIP_START_CLOSEST_TO_HOME:
-      "Starts and ends at Home. Hits your nearest stop first and works outward before returning Home.",
-    OPEN_END_START_AT_HOME:
-      "One-way outbound sweep: departs from Home and finishes at whichever final stop is optimal (no return leg).",
-    OPEN_START_END_AT_HOME:
-      "One-way inbound sweep: starts at the best outer stop in the field and finishes at Home.",
-  };
-
   let stopCountBadge = $derived(
     `${routeStore.stops.length} ${routeStore.stops.length === 1 ? "stop" : "stops"}`
+  );
+  let activeModeHint = $derived(
+    MODE_OPTIONS.find((m) => m.value === routeStore.mode)?.hint ?? ""
   );
 </script>
 
@@ -54,29 +44,13 @@
     >
       Trip Direction Mode
     </label>
-    <select
-      id="mode-select"
-      bind:value={routeStore.mode}
-      class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-base md:text-sm text-slate-100 focus:border-blue-500 focus:outline-none"
-    >
-      <option value="ROUND_TRIP_FASTEST">
-        Round-Trip: Fastest (Any Direction)
-      </option>
-      <option value="ROUND_TRIP_END_CLOSEST_TO_HOME">
-        Round-Trip: End Closest to Home (Inbound)
-      </option>
-      <option value="ROUND_TRIP_START_CLOSEST_TO_HOME">
-        Round-Trip: Start Closest to Home (Outbound)
-      </option>
-      <option value="OPEN_END_START_AT_HOME">
-        One-Way: Start at Home → Best Last Stop
-      </option>
-      <option value="OPEN_START_END_AT_HOME">
-        One-Way: Best First Stop → End at Home
-      </option>
+    <select id="mode-select" bind:value={routeStore.mode} class="ui-input">
+      {#each MODE_OPTIONS as opt (opt.value)}
+        <option value={opt.value}>{opt.label}</option>
+      {/each}
     </select>
     <p class="mt-1.5 text-[11px] leading-relaxed text-slate-400">
-      {MODE_HINTS[routeStore.mode]}
+      {activeModeHint}
     </p>
   </div>
 </CollapsibleSection>

@@ -2,6 +2,7 @@
   import MapPin from "@lucide/svelte/icons/map-pin";
   import type { OptimizedRouteResult } from "../../core";
   import { routeStore } from "../state.svelte";
+  import { formatDuration, formatMiles } from "../ui-meta";
   import CollapsibleSection from "./CollapsibleSection.svelte";
 
   interface Props {
@@ -9,21 +10,6 @@
   }
 
   let { result }: Props = $props();
-
-  const METERS_PER_MILE = 1609.344;
-
-  function formatMiles(meters: number): string {
-    return (meters / METERS_PER_MILE).toFixed(1);
-  }
-
-  function formatDuration(seconds: number): string {
-    const mins = Math.round(seconds / 60);
-    if (mins < 1 && seconds > 0) return "<1 min";
-    if (mins < 60) return `~${mins} min`;
-    const hrs = Math.floor(mins / 60);
-    const remMins = mins % 60;
-    return remMins > 0 ? `~${hrs}h ${remMins}m` : `~${hrs}h`;
-  }
 
   let summaryBadge = $derived(
     result.totalDistanceMeters > 0 || result.totalDurationSeconds > 0

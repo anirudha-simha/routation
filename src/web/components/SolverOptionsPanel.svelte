@@ -1,18 +1,5 @@
 <script lang="ts">
-  import type { ByokProviderId, LocalMatrixSource } from "../../core";
   import { routeStore } from "../state.svelte";
-
-  interface Props {
-    localMatrixSource: LocalMatrixSource;
-    byokProvider: ByokProviderId;
-    apiKey: string;
-  }
-
-  let {
-    localMatrixSource = $bindable(),
-    byokProvider = $bindable(),
-    apiKey = $bindable(),
-  }: Props = $props();
 </script>
 
 {#if routeStore.solverEngine === "osrm-trip"}
@@ -48,8 +35,8 @@
     </label>
     <select
       id="matrix-source-select"
-      bind:value={localMatrixSource}
-      class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-base md:text-xs text-slate-100 focus:border-blue-500 focus:outline-none"
+      bind:value={routeStore.localMatrixSource}
+      class="ui-input"
     >
       <option value="osrm-table">
         OSRM /table Road Network Durations (Asymmetric)
@@ -70,8 +57,8 @@
       </label>
       <select
         id="byok-provider-select"
-        bind:value={byokProvider}
-        class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-base md:text-xs text-slate-100 focus:border-blue-500 focus:outline-none"
+        bind:value={routeStore.byokProvider}
+        class="ui-input"
       >
         <option value="openrouteservice">OpenRouteService API</option>
         <option value="google-routes">Google Routes API</option>
@@ -88,10 +75,10 @@
       <input
         id="byok-key-input"
         type="password"
-        bind:value={apiKey}
+        bind:value={routeStore.apiKey}
         placeholder="Paste your API key..."
         autocomplete="off"
-        class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-base md:text-xs font-mono text-slate-100 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none"
+        class="ui-input font-mono"
       />
     </div>
   </div>

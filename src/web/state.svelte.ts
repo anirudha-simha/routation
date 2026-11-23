@@ -1,11 +1,15 @@
 import { FiniteStateMachine, PersistedState } from "runed";
 import {
+  type ByokProviderId,
+  createDefaultContext,
   GeoLocation,
+  type LocalMatrixSource,
   type OptimizedRouteResult,
   type OsrmProfile,
   type RouteEvent,
   type RouteMode,
   type RouteStatus,
+  runRouteOptimizationPipeline,
   type SolverEngineId,
 } from "../core";
 
@@ -208,6 +212,14 @@ class RouteStore {
     "car"
   );
 
+  readonly #providerCtx = createDefaultContext();
+
+  localMatrixSource = $state<LocalMatrixSource>("osrm-table");
+  byokProvider = $state<ByokProviderId>("openrouteservice");
+  apiKey = $state("");
+
+  statusMessage = $state<string | null>(null);
+  errorMessage = $state<string | null>(null);
   result = $state<OptimizedRouteResult | null>(null);
 
   /** ID of the currently inspected pin/stop (opens its MapView Popup and highlights the sidebar row). */
@@ -284,8 +296,58 @@ class RouteStore {
     return this.stops.find((s) => s.id === this.selectedLocationId);
   }
 
+  get solverBadge(): string {
+    return this.solverEngine === "osrm-trip"
+      ? `${this.solverEngine} • ${this.osrmProfile}`
+      : this.solverEngine;
+  }
+
   selectLocation(id: string | null) {
     this.selectedLocationId = id;
+  }
+
+  async optimize(): Promise<void> {
+    if (this.status === "optimizing") return;
+
+    const home = this.home;
+    if (!home || this.stops.length === 0) {
+      this.errorMessage = "Please lock in a Home location and at least 1 stop.";
+      return;
+    }
+
+    this.startOptimizing();
+    this.errorMessage = null;
+    this.statusMessage = `Running ${this.solverEngine} solver...`;
+
+    try {
+      const res = await runRouteOptimizationPipeline(
+        {
+          home,
+          stops: this.stops,
+          config: {
+            mode: this.mode,
+            solverEngine: this.solverEngine,
+            solverOptions: {
+              osrmProfile: this.osrmProfile,
+              localMatrixSource: this.localMatrixSource,
+              byokProvider: this.byokProvider,
+              apiKey: this.apiKey.trim() || undefined,
+            },
+          },
+        },
+        this.#providerCtx,
+        (progress) => {
+          this.statusMessage = progress.message;
+        }
+      );
+      this.completeOptimizing(res);
+      this.statusMessage = null;
+    } catch (err) {
+      this.failOptimizing();
+      this.errorMessage =
+        err instanceof Error ? err.message : "Route optimization failed";
+      this.statusMessage = null;
+    }
   }
 
   startOptimizing() {
