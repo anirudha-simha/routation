@@ -49,7 +49,7 @@
     <select
       id="matrix-source-select"
       bind:value={localMatrixSource}
-      class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-none"
+      class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-base md:text-xs text-slate-100 focus:border-blue-500 focus:outline-none"
     >
       <option value="osrm-table">
         OSRM /table Road Network Durations (Asymmetric)
@@ -71,7 +71,7 @@
       <select
         id="byok-provider-select"
         bind:value={byokProvider}
-        class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-none"
+        class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-base md:text-xs text-slate-100 focus:border-blue-500 focus:outline-none"
       >
         <option value="openrouteservice">OpenRouteService API</option>
         <option value="google-routes">Google Routes API</option>
@@ -91,7 +91,7 @@
         bind:value={apiKey}
         placeholder="Paste your API key..."
         autocomplete="off"
-        class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-mono text-slate-100 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none"
+        class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-base md:text-xs font-mono text-slate-100 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none"
       />
     </div>
   </div>

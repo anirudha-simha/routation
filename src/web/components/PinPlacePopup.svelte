@@ -34,7 +34,7 @@
   );
 </script>
 
-<div class="w-68 text-slate-900 text-xs flex flex-col gap-2 p-0.5">
+<div class="w-68 max-w-[calc(100vw-3rem)] text-slate-900 text-xs flex flex-col gap-2 p-0.5">
   <!-- Header: Badge + Title + Category/Subtitle + Address -->
   <div class="flex items-start gap-2 pr-4">
     <span

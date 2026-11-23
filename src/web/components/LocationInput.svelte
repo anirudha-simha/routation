@@ -129,7 +129,7 @@
           inputText = e.currentTarget.value;
           open = true;
         }}
-        class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none"
+        class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-base md:text-sm text-slate-100 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none"
       />
       {#if search.loading}
         <span
@@ -199,7 +199,7 @@
             use:dragHandle
             aria-label={`Drag to reorder stop ${i + 1}`}
             title="Drag to reorder"
-            class="shrink-0 cursor-grab active:cursor-grabbing rounded p-0.5 text-slate-500 hover:text-slate-300"
+            class="shrink-0 touch-none cursor-grab active:cursor-grabbing rounded p-1 text-slate-500 hover:text-slate-300"
           >
             <GripVertical class="h-3.5 w-3.5" />
           </button>
