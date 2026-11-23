@@ -1,6 +1,28 @@
 <script lang="ts">
+  import type { RouteStatus } from "../../core";
   import { routeStore } from "../state.svelte";
-  import { STATUS_META } from "../ui-meta";
+
+  const STATUS_META: Record<
+    RouteStatus,
+    { label: string; dotClass: string }
+  > = {
+    unoptimized: {
+      label: "Draft Pins (Unoptimized)",
+      dotClass: "bg-slate-400",
+    },
+    optimizing: {
+      label: "Optimizing...",
+      dotClass: "bg-blue-400 animate-pulse",
+    },
+    optimized: {
+      label: "Optimized Route",
+      dotClass: "bg-emerald-400",
+    },
+    stale: {
+      label: "Route Out of Date",
+      dotClass: "bg-amber-400",
+    },
+  };
 
   let currentMeta = $derived(STATUS_META[routeStore.status]);
 </script>

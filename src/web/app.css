@@ -2,11 +2,74 @@
 @import "maplibre-gl/dist/maplibre-gl.css";
 
 @layer components {
+  .ui-card {
+    @apply rounded-xl border border-slate-800 bg-slate-950/60 p-3.5 flex flex-col gap-3;
+  }
+
   .ui-input {
     @apply w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-base md:text-sm text-slate-100 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none;
   }
 
   .ui-btn-primary {
     @apply w-full rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition;
+  }
+
+  .ui-btn-chip {
+    @apply inline-flex items-center gap-1 rounded border border-slate-300 bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-200 cursor-pointer transition;
+  }
+
+  /* Location & itinerary rows driven by data-selected attribute instead of inline class ternaries */
+  .ui-home-row {
+    @apply flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-2 text-xs text-emerald-200 hover:border-emerald-500/50 transition-colors;
+  }
+  .ui-home-row[data-selected="true"] {
+    @apply border-emerald-400 bg-emerald-500/20 ring-1 ring-emerald-400/50;
+  }
+
+  .ui-stop-row {
+    @apply flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/90 px-2 py-1.5 text-xs text-slate-200 hover:border-slate-700 transition-colors;
+  }
+  .ui-stop-row[data-selected="true"] {
+    @apply border-blue-500 bg-blue-600/15 ring-1 ring-blue-500/40;
+  }
+
+  .ui-itinerary-row {
+    @apply w-full rounded-lg border border-slate-800 bg-slate-950 p-2.5 text-xs flex items-start gap-2.5 text-left cursor-pointer hover:border-slate-700 transition-colors;
+  }
+  .ui-itinerary-row[data-selected="true"] {
+    @apply border-blue-500 bg-blue-600/15 ring-1 ring-blue-500/40;
+  }
+
+  /* Split-pane resizer lip styled via paneforge's native data-direction + our data-collapsed attribute */
+  .ui-resizer {
+    @apply shrink-0 flex items-center justify-center bg-slate-900 border-slate-800 hover:bg-slate-800 active:bg-blue-500/20 touch-none select-none transition-all;
+  }
+  .ui-resizer[data-direction="horizontal"] {
+    @apply w-2.5 border-x cursor-col-resize;
+  }
+  .ui-resizer[data-direction="horizontal"][data-collapsed="true"] {
+    @apply w-4 bg-slate-800/90 border-slate-700;
+  }
+  .ui-resizer[data-direction="vertical"] {
+    @apply h-4 border-y cursor-row-resize;
+  }
+  .ui-resizer[data-direction="vertical"][data-collapsed="true"] {
+    @apply h-6 bg-slate-800/90 border-slate-700;
+  }
+
+  .ui-resizer-pill {
+    @apply rounded-full bg-slate-600 transition-colors;
+  }
+  .ui-resizer:hover .ui-resizer-pill {
+    @apply bg-blue-400;
+  }
+  .ui-resizer[data-collapsed="true"] .ui-resizer-pill {
+    @apply bg-blue-400;
+  }
+  .ui-resizer[data-direction="horizontal"] .ui-resizer-pill {
+    @apply h-10 w-1;
+  }
+  .ui-resizer[data-direction="vertical"] .ui-resizer-pill {
+    @apply h-1.5 w-12;
   }
 }

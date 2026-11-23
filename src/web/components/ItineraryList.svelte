@@ -1,8 +1,11 @@
 <script lang="ts">
   import MapPin from "@lucide/svelte/icons/map-pin";
-  import type { OptimizedRouteResult } from "../../core";
+  import {
+    formatDuration,
+    formatMiles,
+    type OptimizedRouteResult,
+  } from "../../core";
   import { routeStore } from "../state.svelte";
-  import { formatDuration, formatMiles } from "../ui-meta";
   import CollapsibleSection from "./CollapsibleSection.svelte";
 
   interface Props {
@@ -50,9 +53,8 @@
           type="button"
           onclick={() => routeStore.selectLocation(leg.stop.id)}
           title="Click to fly to pin & open Google Maps preview"
-          class="w-full rounded-lg border p-2.5 text-xs flex items-start gap-2.5 text-left cursor-pointer transition-colors group {isSelected
-            ? 'border-blue-500 bg-blue-600/15 ring-1 ring-blue-500/40'
-            : 'border-slate-800 bg-slate-950 hover:border-slate-700'}"
+          class="ui-itinerary-row group"
+          data-selected={isSelected}
         >
           <span
             class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full font-semibold {leg.isHome

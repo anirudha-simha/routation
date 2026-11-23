@@ -138,7 +138,7 @@
       <button
         type="button"
         onclick={() => (showMapEmbed = !showMapEmbed)}
-        class="inline-flex items-center gap-1 rounded border border-slate-300 bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-200 cursor-pointer transition"
+        class="ui-btn-chip"
       >
         <MapPin class="h-3 w-3" />
         <span>{showMapEmbed ? "Hide Map" : "Embed Map"}</span>
@@ -149,7 +149,7 @@
           href={card.wikipediaUrl}
           target="_blank"
           rel="noopener noreferrer"
-          class="inline-flex items-center gap-1 rounded border border-slate-300 bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-200 transition"
+          class="ui-btn-chip"
         >
           <span>Wiki</span>
           <ExternalLink class="h-2.5 w-2.5 shrink-0" />

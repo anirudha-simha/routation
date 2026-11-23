@@ -1,6 +1,6 @@
 <script lang="ts">
+  import type { RouteStatus } from "../../core";
   import { routeStore } from "../state.svelte";
-  import { BUTTON_LABELS } from "../ui-meta";
   import CollapsibleSection from "./CollapsibleSection.svelte";
   import GoogleMapsLinks from "./GoogleMapsLinks.svelte";
   import ItineraryList from "./ItineraryList.svelte";
@@ -9,6 +9,13 @@
   import StopInputPanel from "./StopInputPanel.svelte";
 
   let solverPanelOpen = $state(false);
+
+  const BUTTON_LABELS: Record<RouteStatus, string> = {
+    unoptimized: "Optimize Route",
+    optimizing: "Optimizing Route...",
+    optimized: "Optimize Route",
+    stale: "Re-Optimize Route (Changes Pending)",
+  };
 </script>
 
 <aside

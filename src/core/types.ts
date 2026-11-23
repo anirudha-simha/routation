@@ -17,8 +17,8 @@ export type RouteMode = z.infer<typeof RouteModeSchema>;
  * Pluggable solver engine identifier (Decision D11).
  */
 export const SolverEngineIdSchema = z.enum([
-  "no-solver",
   "osrm-trip",
+  "no-solver",
   "ts-local",
   "byok-api",
 ]);

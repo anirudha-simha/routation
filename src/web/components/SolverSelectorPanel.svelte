@@ -1,10 +1,37 @@
 <script lang="ts">
+  import type { SolverEngineId } from "../../core";
   import { routeStore } from "../state.svelte";
-  import { SOLVER_OPTIONS } from "../ui-meta";
+
+  const SOLVER_OPTIONS: {
+    id: SolverEngineId;
+    title: string;
+    hint: string;
+  }[] = [
+    {
+      id: "osrm-trip",
+      title: "OSRM Server",
+      hint: "Delegates TSP solving and road-polyline generation to OSRM's /trip API in a single request, then rotates or cuts the loop at Home.",
+    },
+    {
+      id: "no-solver",
+      title: "No Solver",
+      hint: "Keeps your current stop order as-is without reordering, and connects the pins directly on the map.",
+    },
+    {
+      id: "ts-local",
+      title: "Local Solver",
+      hint: "Runs Held-Karp exact DP (≤ 15 stops) + 2-Opt/Or-Opt local search directly in your browser using either OSRM /table road weights or offline Haversine distances.",
+    },
+    {
+      id: "byok-api",
+      title: "BYOK API",
+      hint: "Bring your own commercial routing API key (stored only in your browser) for live traffic or provider-specific matrix optimization.",
+    },
+  ];
 
   let activeMeta = $derived(
     SOLVER_OPTIONS.find((s) => s.id === routeStore.solverEngine) ??
-      SOLVER_OPTIONS[0]
+      SOLVER_OPTIONS[0],
   );
 </script>
 

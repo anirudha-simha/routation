@@ -1,0 +1,134 @@
+{
+  "home": [
+    {
+      "id": "home-default",
+      "name": "Ferry Building",
+      "building": "1",
+      "street": "Ferry Building",
+      "city": "San Francisco",
+      "state": "California",
+      "country": "United States",
+      "lat": 37.7955,
+      "lng": -122.3937
+    }
+  ],
+  "stops": [
+    {
+      "id": "stop-1",
+      "name": "Coit Tower",
+      "building": "1",
+      "street": "Telegraph Hill Blvd",
+      "city": "San Francisco",
+      "state": "California",
+      "country": "United States",
+      "lat": 37.8024,
+      "lng": -122.4058
+    },
+    {
+      "id": "stop-2",
+      "name": "Twin Peaks Summit",
+      "building": "501",
+      "street": "Twin Peaks Blvd",
+      "city": "San Francisco",
+      "state": "California",
+      "country": "United States",
+      "lat": 37.7544,
+      "lng": -122.4477
+    },
+    {
+      "id": "stop-3",
+      "name": "Palace of Fine Arts",
+      "building": "3601",
+      "street": "Lyon St",
+      "city": "San Francisco",
+      "state": "California",
+      "country": "United States",
+      "lat": 37.8029,
+      "lng": -122.4484
+    },
+    {
+      "id": "stop-4",
+      "name": "Oracle Park",
+      "building": "24",
+      "street": "Willie Mays Plaza",
+      "city": "San Francisco",
+      "state": "California",
+      "country": "United States",
+      "lat": 37.7786,
+      "lng": -122.3893
+    },
+    {
+      "id": "stop-5",
+      "name": "Golden Gate Bridge Welcome Center",
+      "street": "Golden Gate Bridge Toll Plaza",
+      "city": "San Francisco",
+      "state": "California",
+      "country": "United States",
+      "lat": 37.8078,
+      "lng": -122.475
+    },
+    {
+      "id": "stop-6",
+      "name": "Painted Ladies (Alamo Square)",
+      "street": "Steiner St & Hayes St",
+      "city": "San Francisco",
+      "state": "California",
+      "country": "United States",
+      "lat": 37.7762,
+      "lng": -122.4328
+    },
+    {
+      "id": "stop-7",
+      "name": "Fisherman's Wharf (Pier 39)",
+      "street": "The Embarcadero & Beach St",
+      "city": "San Francisco",
+      "state": "California",
+      "country": "United States",
+      "lat": 37.8087,
+      "lng": -122.4098
+    },
+    {
+      "id": "stop-8",
+      "name": "Japanese Tea Garden",
+      "building": "75",
+      "street": "Hagiwara Tea Garden Dr",
+      "city": "San Francisco",
+      "state": "California",
+      "country": "United States",
+      "lat": 37.7701,
+      "lng": -122.4704
+    },
+    {
+      "id": "stop-9",
+      "name": "Mission Dolores Park",
+      "street": "Dolores St & 19th St",
+      "city": "San Francisco",
+      "state": "California",
+      "country": "United States",
+      "lat": 37.7596,
+      "lng": -122.4269
+    },
+    {
+      "id": "stop-10",
+      "name": "Lombard Street Crooked Block",
+      "building": "1070",
+      "street": "Lombard St",
+      "city": "San Francisco",
+      "state": "California",
+      "country": "United States",
+      "lat": 37.8021,
+      "lng": -122.4187
+    },
+    {
+      "id": "stop-11",
+      "name": "Chase Center",
+      "building": "1",
+      "street": "Warriors Way",
+      "city": "San Francisco",
+      "state": "California",
+      "country": "United States",
+      "lat": 37.768,
+      "lng": -122.3877
+    }
+  ]
+}

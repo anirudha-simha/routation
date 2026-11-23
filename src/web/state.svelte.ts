@@ -12,6 +12,7 @@ import {
   runRouteOptimizationPipeline,
   type SolverEngineId,
 } from "../core";
+import defaults from "../resources/defaults.json";
 
 /**
  * Custom `PersistedState` serializer for `GeoLocation[]` arrays in `localStorage`:
@@ -34,7 +35,6 @@ const geoLocationArraySerializer = {
             typeof (item as Record<string, unknown>).lat === "number" &&
             typeof (item as Record<string, unknown>).lng === "number"
         )
-        // Drop cached `fullAddress` so the GeoLocation constructor freshly derives it
         .map(
           ({ fullAddress: _ignored, ...rest }) =>
             new GeoLocation(
@@ -47,153 +47,22 @@ const geoLocationArraySerializer = {
   },
 };
 
+const DEFAULT_HOME = defaults.home.map((d) => new GeoLocation(d));
+const DEFAULT_STOPS = defaults.stops.map((d) => new GeoLocation(d));
+
 /**
- * Reactive application state singleton (`.svelte.ts` enables Svelte 5 runes inside a class).
- * - Uses `PersistedState` from `runed` so `homeLocations`, `stops`, and `mode` automatically
- *   persist to `localStorage` across page reloads and sync across tabs.
- * - Uses `FiniteStateMachine` from `runed` to track route lifecycle:
- *   `unoptimized` -> `optimizing` -> `optimized` -> `stale` (when locations/mode change after optimizing).
+ * Reactive application state & controller singleton (`.svelte.ts` enables Svelte 5 runes inside a class).
  */
 class RouteStore {
   #homeLocations = new PersistedState<GeoLocation[]>(
     "route-optimizer-home",
-    [
-      new GeoLocation({
-        id: "home-default",
-        name: "Ferry Building",
-        building: "1",
-        street: "Ferry Building",
-        city: "San Francisco",
-        state: "California",
-        country: "United States",
-        lat: 37.7955,
-        lng: -122.3937,
-      }),
-    ],
+    DEFAULT_HOME,
     { serializer: geoLocationArraySerializer }
   );
 
   #stops = new PersistedState<GeoLocation[]>(
     "route-optimizer-stops",
-    [
-      new GeoLocation({
-        id: "stop-1",
-        name: "Coit Tower",
-        building: "1",
-        street: "Telegraph Hill Blvd",
-        city: "San Francisco",
-        state: "California",
-        country: "United States",
-        lat: 37.8024,
-        lng: -122.4058,
-      }),
-      new GeoLocation({
-        id: "stop-2",
-        name: "Twin Peaks Summit",
-        building: "501",
-        street: "Twin Peaks Blvd",
-        city: "San Francisco",
-        state: "California",
-        country: "United States",
-        lat: 37.7544,
-        lng: -122.4477,
-      }),
-      new GeoLocation({
-        id: "stop-3",
-        name: "Palace of Fine Arts",
-        building: "3601",
-        street: "Lyon St",
-        city: "San Francisco",
-        state: "California",
-        country: "United States",
-        lat: 37.8029,
-        lng: -122.4484,
-      }),
-      new GeoLocation({
-        id: "stop-4",
-        name: "Oracle Park",
-        building: "24",
-        street: "Willie Mays Plaza",
-        city: "San Francisco",
-        state: "California",
-        country: "United States",
-        lat: 37.7786,
-        lng: -122.3893,
-      }),
-      new GeoLocation({
-        id: "stop-5",
-        name: "Golden Gate Bridge Welcome Center",
-        street: "Golden Gate Bridge Toll Plaza",
-        city: "San Francisco",
-        state: "California",
-        country: "United States",
-        lat: 37.8078,
-        lng: -122.475,
-      }),
-      new GeoLocation({
-        id: "stop-6",
-        name: "Painted Ladies (Alamo Square)",
-        street: "Steiner St & Hayes St",
-        city: "San Francisco",
-        state: "California",
-        country: "United States",
-        lat: 37.7762,
-        lng: -122.4328,
-      }),
-      new GeoLocation({
-        id: "stop-7",
-        name: "Fisherman's Wharf (Pier 39)",
-        street: "The Embarcadero & Beach St",
-        city: "San Francisco",
-        state: "California",
-        country: "United States",
-        lat: 37.8087,
-        lng: -122.4098,
-      }),
-      new GeoLocation({
-        id: "stop-8",
-        name: "Japanese Tea Garden",
-        building: "75",
-        street: "Hagiwara Tea Garden Dr",
-        city: "San Francisco",
-        state: "California",
-        country: "United States",
-        lat: 37.7701,
-        lng: -122.4704,
-      }),
-      new GeoLocation({
-        id: "stop-9",
-        name: "Mission Dolores Park",
-        street: "Dolores St & 19th St",
-        city: "San Francisco",
-        state: "California",
-        country: "United States",
-        lat: 37.7596,
-        lng: -122.4269,
-      }),
-      new GeoLocation({
-        id: "stop-10",
-        name: "Lombard Street Crooked Block",
-        building: "1070",
-        street: "Lombard St",
-        city: "San Francisco",
-        state: "California",
-        country: "United States",
-        lat: 37.8021,
-        lng: -122.4187,
-      }),
-      new GeoLocation({
-        id: "stop-11",
-        name: "Chase Center",
-        building: "1",
-        street: "Warriors Way",
-        city: "San Francisco",
-        state: "California",
-        country: "United States",
-        lat: 37.768,
-        lng: -122.3877,
-      }),
-    ],
+    DEFAULT_STOPS,
     { serializer: geoLocationArraySerializer }
   );
 
@@ -221,8 +90,6 @@ class RouteStore {
   statusMessage = $state<string | null>(null);
   errorMessage = $state<string | null>(null);
   result = $state<OptimizedRouteResult | null>(null);
-
-  /** ID of the currently inspected pin/stop (opens its MapView Popup and highlights the sidebar row). */
   selectedLocationId = $state<string | null>(null);
 
   fsm = new FiniteStateMachine<RouteStatus, RouteEvent>("unoptimized", {
@@ -315,7 +182,7 @@ class RouteStore {
       return;
     }
 
-    this.startOptimizing();
+    this.fsm.send("OPTIMIZE_START");
     this.errorMessage = null;
     this.statusMessage = `Running ${this.solverEngine} solver...`;
 
@@ -340,34 +207,21 @@ class RouteStore {
           this.statusMessage = progress.message;
         }
       );
-      this.completeOptimizing(res);
+      this.result = res;
+      const orderedNonHomeStops = res.orderedLegs
+        .filter((leg) => !leg.isHome)
+        .map((leg) => leg.stop);
+      if (orderedNonHomeStops.length > 0) {
+        this.#stops.current = orderedNonHomeStops;
+      }
+      this.fsm.send("OPTIMIZE_SUCCESS");
       this.statusMessage = null;
     } catch (err) {
-      this.failOptimizing();
+      this.fsm.send("OPTIMIZE_ERROR");
       this.errorMessage =
         err instanceof Error ? err.message : "Route optimization failed";
       this.statusMessage = null;
     }
-  }
-
-  startOptimizing() {
-    this.fsm.send("OPTIMIZE_START");
-  }
-
-  completeOptimizing(res: OptimizedRouteResult) {
-    this.result = res;
-    // Update stops array to match the solver's non-Home stop visitation order so pins 1..N renumber
-    const orderedNonHomeStops = res.orderedLegs
-      .filter((leg) => !leg.isHome)
-      .map((leg) => leg.stop);
-    if (orderedNonHomeStops.length > 0) {
-      this.#stops.current = orderedNonHomeStops;
-    }
-    this.fsm.send("OPTIMIZE_SUCCESS");
-  }
-
-  failOptimizing() {
-    this.fsm.send("OPTIMIZE_ERROR");
   }
 }
 

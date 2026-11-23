@@ -20,10 +20,7 @@
   }: Props = $props();
 </script>
 
-<Collapsible.Root
-  bind:open
-  class="rounded-xl border border-slate-800 bg-slate-950/60 p-3.5 flex flex-col gap-3"
->
+<Collapsible.Root bind:open class="ui-card">
   <Collapsible.Trigger
     class="flex w-full items-center justify-between text-left cursor-pointer group"
   >

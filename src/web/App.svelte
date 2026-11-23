@@ -29,27 +29,19 @@
   <PaneResizer
     aria-label="Drag or click to resize panels"
     title={isAnyCollapsed ? "Click or drag to expand panel" : "Drag to resize"}
+    data-collapsed={isAnyCollapsed}
     ondblclick={restoreSplit}
     onclick={() => {
       if (isAnyCollapsed) restoreSplit();
     }}
-    class="group shrink-0 flex items-center justify-center bg-slate-900 border-slate-800 hover:bg-slate-800 active:bg-blue-500/20 touch-none select-none transition-all {isDesktop.current
-      ? `border-x cursor-col-resize ${isAnyCollapsed ? 'w-4 bg-slate-800/90 border-slate-700' : 'w-2.5'}`
-      : `border-y cursor-row-resize ${isAnyCollapsed ? 'h-6 bg-slate-800/90 border-slate-700' : 'h-4'}`}"
+    class="ui-resizer"
   >
-    <div
-      class="rounded-full transition-colors {isAnyCollapsed
-        ? 'bg-blue-400 group-hover:bg-blue-300'
-        : 'bg-slate-600 group-hover:bg-blue-400'} {isDesktop.current
-        ? 'h-10 w-1'
-        : 'h-1.5 w-12'}"
-    ></div>
+    <div class="ui-resizer-pill"></div>
   </PaneResizer>
 {/snippet}
 
 <div class="flex h-dvh w-screen overflow-hidden bg-slate-950">
   {#if isDesktop.current}
-    <!-- Desktop: Left Sidebar (32%) | Right Map (68%) -->
     <PaneGroup
       direction="horizontal"
       autoSaveId="routation-desktop-split"
@@ -81,7 +73,6 @@
       </Pane>
     </PaneGroup>
   {:else}
-    <!-- Mobile: Top Map (42%) | Bottom Drawer Sidebar (58%) -->
     <PaneGroup
       direction="vertical"
       autoSaveId="routation-mobile-split"

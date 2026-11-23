@@ -9,12 +9,10 @@
   import Home from "@lucide/svelte/icons/home";
   import MapPin from "@lucide/svelte/icons/map-pin";
   import X from "@lucide/svelte/icons/x";
-  import { Combobox } from "bits-ui";
-  import { resource } from "runed";
-  import { GeoLocation, PhotonGeoCoder } from "../../core";
+  import { GeoLocation } from "../../core";
   import { routeStore } from "../state.svelte";
+  import LocationSearchBox from "./LocationSearchBox.svelte";
 
-  const photon = new PhotonGeoCoder();
   const FLIP_DURATION_MS = 180;
 
   interface Props {
@@ -29,35 +27,12 @@
     placeholder = "Search address, place, or lat, lng...",
   }: Props = $props();
 
-  let selectedId = $state("");
-  let inputText = $state("");
-  let open = $state(false);
-
-  // Local working copy of `values`: automatically re-syncs when `values` changes,
-  // while letting `onconsider` override it locally during drag without touching `routeStore`.
   let dragItems = $derived(values);
 
-  // Declarative debounced resource: watches `inputText`, waits 300ms, calls `photon.lookup()`,
-  // tracks `search.loading`, and automatically cancels stale in-flight requests.
-  const search = resource(
-    () => inputText.trim(),
-    async (query) => (query.length >= 3 ? photon.lookup(query) : []),
-    { debounce: 300, initialValue: [] as GeoLocation[] }
-  );
-
   function addGeoLocation(loc: GeoLocation) {
-    const entry = new GeoLocation({
-      ...loc,
-      id: crypto.randomUUID(),
-    });
+    const entry = new GeoLocation({ ...loc, id: crypto.randomUUID() });
     values = single ? [entry] : [...values, entry];
     routeStore.selectLocation(entry.id);
-    inputText = "";
-    search.mutate([]);
-    open = false;
-    queueMicrotask(() => {
-      selectedId = "";
-    });
   }
 
   function removeLocation(index: number) {
@@ -87,9 +62,7 @@
     class="min-w-0 flex-1 flex items-center justify-between gap-1.5 text-left cursor-pointer group"
     title="Click to fly to pin & open Google Maps preview"
   >
-    <span
-      class="truncate font-medium group-hover:text-blue-300 transition-colors"
-    >
+    <span class="truncate font-medium group-hover:text-blue-300 transition-colors">
       {loc.fullAddress}
     </span>
     <MapPin
@@ -111,63 +84,12 @@
 {/snippet}
 
 <div class="flex flex-col gap-2">
-  <Combobox.Root
-    type="single"
-    bind:value={selectedId}
-    bind:open
-    onValueChange={(id) => {
-      if (!id) return;
-      const picked = search.current.find((s) => s.id === id);
-      if (picked) addGeoLocation(picked);
-    }}
-  >
-    <div class="relative">
-      <Combobox.Input
-        {placeholder}
-        clearOnDeselect
-        oninput={(e) => {
-          inputText = e.currentTarget.value;
-          open = true;
-        }}
-        class="ui-input"
-      />
-      {#if search.loading}
-        <span
-          class="pointer-events-none absolute right-2.5 top-2.5 text-[11px] text-slate-400"
-        >
-          Searching...
-        </span>
-      {/if}
-    </div>
-
-    {#if search.current.length > 0}
-      <Combobox.Content
-        class="z-50 mt-1 max-h-52 w-[var(--bits-combobox-anchor-width)] overflow-y-auto rounded-lg border border-slate-700 bg-slate-900 p-1 shadow-xl"
-      >
-        {#each search.current as option (option.id)}
-          <Combobox.Item
-            value={option.id}
-            label={option.fullAddress}
-            class="flex cursor-pointer items-center justify-between rounded-md px-2.5 py-1.5 text-xs text-slate-200 hover:bg-blue-600/20 data-[highlighted]:bg-blue-600/30"
-          >
-            <span class="truncate">{option.fullAddress}</span>
-            <span class="ml-2 shrink-0 font-mono text-[10px] text-slate-400">
-              {option.lat.toFixed(3)}, {option.lng.toFixed(3)}
-            </span>
-          </Combobox.Item>
-        {/each}
-      </Combobox.Content>
-    {/if}
-  </Combobox.Root>
+  <LocationSearchBox {placeholder} onSelect={addGeoLocation} />
 
   {#if single && values.length > 0}
     {@const home = values[0]}
     {@const isSelected = routeStore.selectedLocationId === home.id}
-    <div
-      class="flex items-center gap-2 rounded-lg border px-2.5 py-2 text-xs text-emerald-200 transition-colors {isSelected
-        ? 'border-emerald-400 bg-emerald-500/20 ring-1 ring-emerald-400/50'
-        : 'border-emerald-500/30 bg-emerald-500/10 hover:border-emerald-500/50'}"
-    >
+    <div class="ui-home-row" data-selected={isSelected}>
       <span
         class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white"
       >
@@ -190,9 +112,8 @@
         {@const isSelected = routeStore.selectedLocationId === loc.id}
         <li
           animate:flip={{ duration: FLIP_DURATION_MS }}
-          class="flex items-center gap-2 rounded-lg border px-2 py-1.5 text-xs text-slate-200 transition-colors {isSelected
-            ? 'border-blue-500 bg-blue-600/15 ring-1 ring-blue-500/40'
-            : 'border-slate-800 bg-slate-900/90 hover:border-slate-700'}"
+          class="ui-stop-row"
+          data-selected={isSelected}
         >
           <button
             type="button"

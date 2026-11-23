@@ -1,8 +1,36 @@
 <script lang="ts">
+  import type { RouteMode } from "../../core";
   import { routeStore } from "../state.svelte";
-  import { MODE_OPTIONS } from "../ui-meta";
   import CollapsibleSection from "./CollapsibleSection.svelte";
   import LocationInput from "./LocationInput.svelte";
+
+  const MODE_OPTIONS: { value: RouteMode; label: string; hint: string }[] = [
+    {
+      value: "ROUND_TRIP_FASTEST",
+      label: "Round-Trip: Fastest (Any Direction)",
+      hint: "Starts and ends at Home using whichever loop direction the solver finds fastest overall.",
+    },
+    {
+      value: "ROUND_TRIP_END_CLOSEST_TO_HOME",
+      label: "Round-Trip: End Closest to Home (Inbound)",
+      hint: "Starts and ends at Home. Drives out to your farthest stop first and sweeps progressively back toward Home.",
+    },
+    {
+      value: "ROUND_TRIP_START_CLOSEST_TO_HOME",
+      label: "Round-Trip: Start Closest to Home (Outbound)",
+      hint: "Starts and ends at Home. Hits your nearest stop first and works outward before returning Home.",
+    },
+    {
+      value: "OPEN_END_START_AT_HOME",
+      label: "One-Way: Start at Home → Best Last Stop",
+      hint: "One-way outbound sweep: departs from Home and finishes at whichever final stop is optimal (no return leg).",
+    },
+    {
+      value: "OPEN_START_END_AT_HOME",
+      label: "One-Way: Best First Stop → End at Home",
+      hint: "One-way inbound sweep: starts at the best outer stop in the field and finishes at Home.",
+    },
+  ];
 
   let stopCountBadge = $derived(
     `${routeStore.stops.length} ${routeStore.stops.length === 1 ? "stop" : "stops"}`
