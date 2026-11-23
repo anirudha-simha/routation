@@ -2,12 +2,48 @@ import { GeoLocation, OsrmProfile } from "./types";
 
 export class GoogleMapsLinkBuilder {
   private static readonly BASE_URL = "https://www.google.com/maps/dir/";
+  private static readonly SEARCH_BASE_URL =
+    "https://www.google.com/maps/search/";
+  private static readonly EMBED_BASE_URL = "https://maps.google.com/maps";
   private static readonly MAX_STOPS_PER_LINK = 9;
   private static readonly TRAVEL_MODE_MAP: Record<OsrmProfile, string> = {
     car: "driving",
     bike: "bicycling",
     foot: "walking",
   };
+
+  private static formatCoords(stop: GeoLocation): string {
+    return `${stop.lat.toFixed(6)},${stop.lng.toFixed(6)}`;
+  }
+
+  private static formatPlaceQuery(stop: GeoLocation): string {
+    return stop.fullAddress.trim() || GoogleMapsLinkBuilder.formatCoords(stop);
+  }
+
+  /**
+   * Builds a keyless Google Maps Universal (`api=1`) Place Search link for a single location.
+   * Clicking this opens Google Maps (or the native mobile app) pinned to the location.
+   */
+  static buildPlaceSearchUrl(stop: GeoLocation): string {
+    const params = new URLSearchParams({
+      api: "1",
+      query: GoogleMapsLinkBuilder.formatPlaceQuery(stop),
+    });
+    return `${GoogleMapsLinkBuilder.SEARCH_BASE_URL}?${params.toString()}`;
+  }
+
+  /**
+   * Builds a keyless Google Maps `output=embed` URL suitable for an on-demand `<iframe>` preview.
+   */
+  static buildPlaceEmbedUrl(stop: GeoLocation, zoom = 15): string {
+    const params = new URLSearchParams({
+      q: GoogleMapsLinkBuilder.formatPlaceQuery(stop),
+      ll: GoogleMapsLinkBuilder.formatCoords(stop),
+      z: String(zoom),
+      output: "embed",
+    });
+    return `${GoogleMapsLinkBuilder.EMBED_BASE_URL}?${params.toString()}`;
+  }
 
   /**
    * Iterates through `orderedStops` and produces Google Maps Universal (`api=1`) directions links.

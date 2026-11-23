@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { RouteMode } from "../../core";
   import { routeStore } from "../state.svelte";
+  import CollapsibleSection from "./CollapsibleSection.svelte";
   import LocationInput from "./LocationInput.svelte";
 
   const MODE_HINTS: Record<RouteMode, string> = {
@@ -16,24 +17,15 @@
       "One-way inbound sweep: starts at the best outer stop in the field and finishes at Home.",
   };
 
-  // TODO (FE internals): Add CSV file import (PapaParse) and persist `routeStore.homeLocations` to localStorage.
+  let stopCountBadge = $derived(
+    `${routeStore.stops.length} ${routeStore.stops.length === 1 ? "stop" : "stops"}`
+  );
 </script>
 
-<section
-  class="rounded-xl border border-slate-800 bg-slate-950/60 p-3.5 flex flex-col gap-3"
->
-  <div class="flex items-center justify-between">
-    <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400">
-      1. Route Locations & Mode
-    </h2>
-    <span class="text-[11px] text-slate-500">
-      {routeStore.stops.length} {routeStore.stops.length === 1 ? "stop" : "stops"} added
-    </span>
-  </div>
-
+<CollapsibleSection title="1. Route Locations & Mode" badge={stopCountBadge}>
   <div>
     <span class="block text-xs font-medium text-slate-300 mb-1">
-      Home Base <span class="text-slate-500 font-normal">(1 location)</span>
+      Home Base <span class="text-slate-500 font-normal">(click row to inspect pin)</span>
     </span>
     <LocationInput
       single
@@ -47,7 +39,7 @@
 
   <div>
     <span class="block text-xs font-medium text-slate-300 mb-1">
-      Stops to Visit <span class="text-slate-500 font-normal">(drag ⋮⋮ to reorder)</span>
+      Stops to Visit <span class="text-slate-500 font-normal">(drag ⋮⋮ to reorder • click to fly to pin)</span>
     </span>
     <LocationInput
       bind:values={routeStore.stops}
@@ -87,4 +79,4 @@
       {MODE_HINTS[routeStore.mode]}
     </p>
   </div>
-</section>
+</CollapsibleSection>

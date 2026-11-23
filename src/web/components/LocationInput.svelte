@@ -7,10 +7,12 @@
   } from "svelte-dnd-action";
   import GripVertical from "@lucide/svelte/icons/grip-vertical";
   import Home from "@lucide/svelte/icons/home";
+  import MapPin from "@lucide/svelte/icons/map-pin";
   import X from "@lucide/svelte/icons/x";
   import { Combobox } from "bits-ui";
   import { resource } from "runed";
   import { GeoLocation, PhotonGeoCoder } from "../../core";
+  import { routeStore } from "../state.svelte";
 
   const photon = new PhotonGeoCoder();
   const FLIP_DURATION_MS = 180;
@@ -40,16 +42,16 @@
   const search = resource(
     () => inputText.trim(),
     async (query) => (query.length >= 3 ? photon.lookup(query) : []),
-    { debounce: 300, initialValue: [] as GeoLocation[] },
+    { debounce: 300, initialValue: [] as GeoLocation[] }
   );
 
   function addGeoLocation(loc: GeoLocation) {
-    // Assign a unique instance ID so duplicate stops never collide in `animate:flip` or dndzone
     const entry = new GeoLocation({
       ...loc,
       id: crypto.randomUUID(),
     });
     values = single ? [entry] : [...values, entry];
+    routeStore.selectLocation(entry.id);
     inputText = "";
     search.mutate([]);
     open = false;
@@ -59,6 +61,10 @@
   }
 
   function removeLocation(index: number) {
+    const removed = values[index];
+    if (removed && routeStore.selectedLocationId === removed.id) {
+      routeStore.selectLocation(null);
+    }
     values = values.filter((_, i) => i !== index);
   }
 
@@ -68,14 +74,41 @@
 
   function handleDndFinalize(e: CustomEvent<DndEvent<GeoLocation>>) {
     dragItems = e.detail.items;
-    const orderChanged = e.detail.items.some(
-      (item, idx) => item.id !== values[idx]?.id,
-    );
-    if (orderChanged) {
+    if (e.detail.items.some((item, idx) => item.id !== values[idx]?.id)) {
       values = e.detail.items;
     }
   }
 </script>
+
+{#snippet rowActions(loc: GeoLocation, index: number, isSelected: boolean)}
+  <button
+    type="button"
+    onclick={() => routeStore.selectLocation(loc.id)}
+    class="min-w-0 flex-1 flex items-center justify-between gap-1.5 text-left cursor-pointer group"
+    title="Click to fly to pin & open Google Maps preview"
+  >
+    <span
+      class="truncate font-medium group-hover:text-blue-300 transition-colors"
+    >
+      {loc.fullAddress}
+    </span>
+    <MapPin
+      class="h-3 w-3 shrink-0 transition-opacity {isSelected
+        ? 'text-blue-400 opacity-100'
+        : 'text-slate-500 opacity-0 group-hover:opacity-100'}"
+    />
+  </button>
+
+  <button
+    type="button"
+    onclick={() => removeLocation(index)}
+    class="shrink-0 rounded p-0.5 text-slate-500 hover:bg-slate-800 hover:text-slate-200 cursor-pointer transition"
+    title="Remove location"
+    aria-label={`Remove ${loc.fullAddress}`}
+  >
+    <X class="h-3.5 w-3.5" />
+  </button>
+{/snippet}
 
 <div class="flex flex-col gap-2">
   <Combobox.Root
@@ -85,9 +118,7 @@
     onValueChange={(id) => {
       if (!id) return;
       const picked = search.current.find((s) => s.id === id);
-      if (picked) {
-        addGeoLocation(picked);
-      }
+      if (picked) addGeoLocation(picked);
     }}
   >
     <div class="relative">
@@ -130,34 +161,21 @@
   </Combobox.Root>
 
   {#if single && values.length > 0}
-    <!-- Single Home Base Row -->
     {@const home = values[0]}
+    {@const isSelected = routeStore.selectedLocationId === home.id}
     <div
-      class="flex items-center gap-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-2 text-xs text-emerald-200"
+      class="flex items-center gap-2 rounded-lg border px-2.5 py-2 text-xs text-emerald-200 transition-colors {isSelected
+        ? 'border-emerald-400 bg-emerald-500/20 ring-1 ring-emerald-400/50'
+        : 'border-emerald-500/30 bg-emerald-500/10 hover:border-emerald-500/50'}"
     >
       <span
         class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white"
       >
         <Home class="h-3 w-3" />
       </span>
-      <span
-        class="min-w-0 flex-1 truncate font-medium"
-        title={`${home.fullAddress} (${home.lat.toFixed(5)}, ${home.lng.toFixed(5)})`}
-      >
-        {home.fullAddress}
-      </span>
-      <button
-        type="button"
-        onclick={() => removeLocation(0)}
-        class="shrink-0 rounded p-0.5 text-emerald-300/70 hover:bg-emerald-500/20 hover:text-white cursor-pointer transition"
-        title="Clear Home location"
-        aria-label="Clear Home location"
-      >
-        <X class="h-3.5 w-3.5" />
-      </button>
+      {@render rowActions(home, 0, isSelected)}
     </div>
   {:else if !single && dragItems.length > 0}
-    <!-- Reorderable Vertical Stop List -->
     <ol
       class="flex flex-col gap-1.5"
       use:dragHandleZone={{
@@ -169,9 +187,12 @@
       onfinalize={handleDndFinalize}
     >
       {#each dragItems as loc, i (loc.id)}
+        {@const isSelected = routeStore.selectedLocationId === loc.id}
         <li
           animate:flip={{ duration: FLIP_DURATION_MS }}
-          class="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/90 px-2 py-1.5 text-xs text-slate-200 hover:border-slate-700 transition-colors"
+          class="flex items-center gap-2 rounded-lg border px-2 py-1.5 text-xs text-slate-200 transition-colors {isSelected
+            ? 'border-blue-500 bg-blue-600/15 ring-1 ring-blue-500/40'
+            : 'border-slate-800 bg-slate-900/90 hover:border-slate-700'}"
         >
           <button
             type="button"
@@ -189,24 +210,7 @@
             {i + 1}
           </span>
 
-          <div class="min-w-0 flex-1">
-            <div
-              class="truncate font-medium text-slate-100"
-              title={`${loc.fullAddress} (${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)})`}
-            >
-              {loc.fullAddress}
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onclick={() => removeLocation(i)}
-            class="shrink-0 rounded p-0.5 text-slate-500 hover:bg-slate-800 hover:text-slate-200 cursor-pointer transition"
-            title="Remove stop"
-            aria-label={`Remove ${loc.fullAddress}`}
-          >
-            <X class="h-3.5 w-3.5" />
-          </button>
+          {@render rowActions(loc, i, isSelected)}
         </li>
       {/each}
     </ol>

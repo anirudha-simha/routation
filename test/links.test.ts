@@ -3,6 +3,7 @@ import {
   buildBridgedGoogleMapsLinks,
   chunkWithOverlap,
   GeoLocation,
+  GoogleMapsLinkBuilder,
 } from "../src/core";
 
 function makeFakeStop(index: number): GeoLocation {
@@ -53,5 +54,20 @@ describe("buildBridgedGoogleMapsLinks", () => {
     expect(links[0].googleMapsUrl).toContain(
       "https://www.google.com/maps/dir/?api=1"
     );
+  });
+});
+
+describe("GoogleMapsLinkBuilder place search & embed URLs", () => {
+  it("builds official api=1 place search URL and keyless output=embed URL", () => {
+    const stop = makeFakeStop(1);
+    const searchUrl = GoogleMapsLinkBuilder.buildPlaceSearchUrl(stop);
+    const embedUrl = GoogleMapsLinkBuilder.buildPlaceEmbedUrl(stop);
+
+    expect(searchUrl).toBe(
+      "https://www.google.com/maps/search/?api=1&query=1+Market+St%2C+San+Francisco%2C+CA"
+    );
+    expect(embedUrl).toContain("https://maps.google.com/maps?");
+    expect(embedUrl).toContain("output=embed");
+    expect(embedUrl).toContain("q=1+Market+St%2C+San+Francisco%2C+CA");
   });
 });

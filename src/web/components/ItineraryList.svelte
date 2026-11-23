@@ -1,5 +1,8 @@
 <script lang="ts">
+  import MapPin from "@lucide/svelte/icons/map-pin";
   import type { OptimizedRouteResult } from "../../core";
+  import { routeStore } from "../state.svelte";
+  import CollapsibleSection from "./CollapsibleSection.svelte";
 
   interface Props {
     result: OptimizedRouteResult;
@@ -22,27 +25,21 @@
     return remMins > 0 ? `~${hrs}h ${remMins}m` : `~${hrs}h`;
   }
 
-  let totalMiles = $derived(formatMiles(result.totalDistanceMeters));
-  let totalDuration = $derived(formatDuration(result.totalDurationSeconds));
-
-  // TODO (FE internals): Add drag-to-reorder handlers (Decision D6) that call `recomputeForOrder`
+  let summaryBadge = $derived(
+    result.totalDistanceMeters > 0 || result.totalDurationSeconds > 0
+      ? `${formatMiles(result.totalDistanceMeters)} mi • ${formatDuration(result.totalDurationSeconds)}`
+      : undefined
+  );
 </script>
 
-<section class="flex flex-col gap-2">
-  <div class="flex items-center justify-between">
-    <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400">
-      Ordered Itinerary ({result.orderedLegs.length} stops)
-    </h2>
-    {#if result.totalDistanceMeters > 0 || result.totalDurationSeconds > 0}
-      <span class="text-xs font-medium text-emerald-400">
-        {totalMiles} mi • {totalDuration}
-      </span>
-    {/if}
-  </div>
-
+<CollapsibleSection
+  title={`Ordered Itinerary (${result.orderedLegs.length} stops)`}
+  badge={summaryBadge}
+  badgeClass="text-xs font-medium text-emerald-400"
+>
   <ol class="flex flex-col">
     {#each result.orderedLegs as leg, i (`${i}-${leg.stop.id}`)}
-      <!-- Edge connector between stop (i - 1) and stop (i) showing leg distance & duration -->
+      {@const isSelected = routeStore.selectedLocationId === leg.stop.id}
       {#if i > 0}
         <li
           aria-label="Route leg details"
@@ -62,27 +59,41 @@
         </li>
       {/if}
 
-      <li
-        class="rounded-lg border border-slate-800 bg-slate-950 p-2.5 text-xs flex items-start gap-2.5"
-      >
-        <span
-          class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full font-semibold {leg.isHome
-            ? 'bg-emerald-600 text-white'
-            : leg.isBridgeWaypoint
-              ? 'bg-amber-500 text-slate-950'
-              : 'bg-blue-600 text-white'}"
+      <li>
+        <button
+          type="button"
+          onclick={() => routeStore.selectLocation(leg.stop.id)}
+          title="Click to fly to pin & open Google Maps preview"
+          class="w-full rounded-lg border p-2.5 text-xs flex items-start gap-2.5 text-left cursor-pointer transition-colors group {isSelected
+            ? 'border-blue-500 bg-blue-600/15 ring-1 ring-blue-500/40'
+            : 'border-slate-800 bg-slate-950 hover:border-slate-700'}"
         >
-          {leg.isHome ? "H" : leg.sequenceNumber}
-        </span>
-        <div class="min-w-0 flex-1">
-          <div class="font-medium text-slate-100 truncate">
-            {leg.stop.name}
+          <span
+            class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full font-semibold {leg.isHome
+              ? 'bg-emerald-600 text-white'
+              : leg.isBridgeWaypoint
+                ? 'bg-amber-500 text-slate-950'
+                : 'bg-blue-600 text-white'}"
+          >
+            {leg.isHome ? "H" : leg.sequenceNumber}
+          </span>
+          <div class="min-w-0 flex-1">
+            <div
+              class="font-medium text-slate-100 truncate group-hover:text-blue-300 transition-colors"
+            >
+              {leg.stop.name || leg.stop.fullAddress}
+            </div>
+            <div class="text-slate-400 truncate">
+              {leg.stop.fullAddress}
+            </div>
           </div>
-          <div class="text-slate-400 truncate">
-            {leg.stop.fullAddress}
-          </div>
-        </div>
+          <MapPin
+            class="mt-1 h-3.5 w-3.5 shrink-0 transition-opacity {isSelected
+              ? 'text-blue-400 opacity-100'
+              : 'text-slate-500 opacity-0 group-hover:opacity-100'}"
+          />
+        </button>
       </li>
     {/each}
   </ol>
-</section>
+</CollapsibleSection>

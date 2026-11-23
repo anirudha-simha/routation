@@ -2,9 +2,11 @@ import { FiniteStateMachine, PersistedState } from "runed";
 import {
   GeoLocation,
   type OptimizedRouteResult,
+  type OsrmProfile,
   type RouteEvent,
   type RouteMode,
   type RouteStatus,
+  type SolverEngineId,
 } from "../core";
 
 /**
@@ -196,7 +198,20 @@ class RouteStore {
     "ROUND_TRIP_FASTEST"
   );
 
+  #solverEngine = new PersistedState<SolverEngineId>(
+    "route-optimizer-solver",
+    "osrm-trip"
+  );
+
+  #osrmProfile = new PersistedState<OsrmProfile>(
+    "route-optimizer-osrm-profile",
+    "car"
+  );
+
   result = $state<OptimizedRouteResult | null>(null);
+
+  /** ID of the currently inspected pin/stop (opens its MapView Popup and highlights the sidebar row). */
+  selectedLocationId = $state<string | null>(null);
 
   fsm = new FiniteStateMachine<RouteStatus, RouteEvent>("unoptimized", {
     unoptimized: {
@@ -243,8 +258,34 @@ class RouteStore {
     this.fsm.send("INPUTS_CHANGED");
   }
 
+  get solverEngine(): SolverEngineId {
+    return this.#solverEngine.current;
+  }
+  set solverEngine(value: SolverEngineId) {
+    this.#solverEngine.current = value;
+    this.fsm.send("INPUTS_CHANGED");
+  }
+
+  get osrmProfile(): OsrmProfile {
+    return this.#osrmProfile.current;
+  }
+  set osrmProfile(value: OsrmProfile) {
+    this.#osrmProfile.current = value;
+    this.fsm.send("INPUTS_CHANGED");
+  }
+
   get home(): GeoLocation | undefined {
     return this.homeLocations[0];
+  }
+
+  get selectedLocation(): GeoLocation | undefined {
+    if (!this.selectedLocationId) return undefined;
+    if (this.home?.id === this.selectedLocationId) return this.home;
+    return this.stops.find((s) => s.id === this.selectedLocationId);
+  }
+
+  selectLocation(id: string | null) {
+    this.selectedLocationId = id;
   }
 
   startOptimizing() {

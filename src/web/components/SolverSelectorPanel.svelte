@@ -1,11 +1,6 @@
 <script lang="ts">
   import type { SolverEngineId } from "../../core";
-
-  interface Props {
-    solverEngine: SolverEngineId;
-  }
-
-  let { solverEngine = $bindable() }: Props = $props();
+  import { routeStore } from "../state.svelte";
 
   interface SolverOptionMeta {
     id: SolverEngineId;
@@ -42,30 +37,18 @@
   ];
 
   let activeMeta = $derived(
-    SOLVER_OPTIONS.find((s) => s.id === solverEngine) ?? SOLVER_OPTIONS[0]
+    SOLVER_OPTIONS.find((s) => s.id === routeStore.solverEngine) ??
+      SOLVER_OPTIONS[0]
   );
 </script>
 
-<section
-  class="rounded-xl border border-slate-800 bg-slate-950/60 p-3.5 flex flex-col gap-2.5"
->
-  <div class="flex items-center justify-between">
-    <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400">
-      2. Solver Engine
-    </h2>
-    <span
-      class="rounded bg-slate-800 px-2 py-0.5 text-[10px] font-medium text-slate-300"
-    >
-      {activeMeta.badge}
-    </span>
-  </div>
-
+<div class="flex flex-col gap-2">
   <div class="grid grid-cols-2 gap-1.5">
     {#each SOLVER_OPTIONS as option (option.id)}
       <button
         type="button"
-        onclick={() => (solverEngine = option.id)}
-        class="rounded-lg border px-2.5 py-2 text-left transition cursor-pointer {solverEngine ===
+        onclick={() => (routeStore.solverEngine = option.id)}
+        class="rounded-lg border px-2.5 py-2 text-left transition cursor-pointer {routeStore.solverEngine ===
         option.id
           ? 'border-blue-500 bg-blue-600/20 text-white'
           : 'border-slate-800 bg-slate-900/70 text-slate-400 hover:border-slate-700 hover:text-slate-200'}"
@@ -78,4 +61,4 @@
   <p class="text-[11px] leading-relaxed text-slate-400">
     {activeMeta.hint}
   </p>
-</section>
+</div>
