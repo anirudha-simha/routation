@@ -1,6 +1,12 @@
 <script lang="ts">
   import MapPinPlus from "@lucide/svelte/icons/map-pin-plus";
-  import { LngLatBounds, setWorkerUrl, type Map, type MapMouseEvent } from "maplibre-gl";
+  import {
+    LngLatBounds,
+    setWorkerUrl,
+    type ExpressionSpecification,
+    type Map,
+    type MapMouseEvent,
+  } from "maplibre-gl";
   import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
   import { watch } from "runed";
   import {
@@ -19,6 +25,28 @@
 
   const OPENFREEMAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
   const DEFAULT_CENTER: [number, number] = [-122.4194, 37.7749];
+
+  const ACTIVE_LINE_GRADIENT: ExpressionSpecification = [
+    "interpolate",
+    ["linear"],
+    ["line-progress"],
+    0,
+    "#10b981", // Start (Emerald)
+    0.5,
+    "#3b82f6", // Mid-route (Blue)
+    1,
+    "#a855f7", // Finish (Purple)
+  ];
+
+  const STALE_LINE_GRADIENT: ExpressionSpecification = [
+    "interpolate",
+    ["linear"],
+    ["line-progress"],
+    0,
+    "#64748b",
+    1,
+    "#f59e0b",
+  ];
 
   let map = $state<Map | undefined>(undefined);
   let containerEl = $state<HTMLDivElement | null>(null);
@@ -219,13 +247,28 @@
     {/if}
 
     {#if routeStore.result && routeStore.result.routeGeoJson.features.length > 0 && (routeStore.status === "optimized" || routeStore.status === "stale")}
-      <GeoJSONSource data={routeStore.result.routeGeoJson}>
+      <GeoJSONSource data={routeStore.result.routeGeoJson} lineMetrics={true}>
+        <!-- Subtle dark casing so the directional gradient pops cleanly over light roads -->
         <LineLayer
+          id="route-line-casing"
+          layout={{ "line-cap": "round", "line-join": "round" }}
           paint={{
-            "line-color":
-              routeStore.status === "stale" ? "#8b5cf6" : "#3b82f6",
-            "line-width": 4,
-            "line-opacity": routeStore.status === "stale" ? 0.75 : 0.9,
+            "line-color": "#0f172a",
+            "line-width": 6.5,
+            "line-opacity": routeStore.status === "stale" ? 0.45 : 0.75,
+          }}
+        />
+        <!-- Directional line-gradient (Emerald start -> Blue mid -> Purple finish) -->
+        <LineLayer
+          id="route-line-gradient"
+          layout={{ "line-cap": "round", "line-join": "round" }}
+          paint={{
+            "line-width": 4.25,
+            "line-opacity": routeStore.status === "stale" ? 0.7 : 0.95,
+            "line-gradient":
+              routeStore.status === "stale"
+                ? STALE_LINE_GRADIENT
+                : ACTIVE_LINE_GRADIENT,
           }}
         />
       </GeoJSONSource>

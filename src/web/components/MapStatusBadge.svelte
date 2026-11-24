@@ -11,11 +11,11 @@
       dotClass: "bg-slate-400",
     },
     optimizing: {
-      label: "Optimizing...",
+      label: "Calculating...",
       dotClass: "bg-blue-400 animate-pulse",
     },
     optimized: {
-      label: "Optimized Route",
+      label: "Active Route",
       dotClass: "bg-emerald-400",
     },
     stale: {
@@ -25,6 +25,10 @@
   };
 
   let currentMeta = $derived(STATUS_META[routeStore.status]);
+  let showDirectionKey = $derived(
+    routeStore.status === "optimized" &&
+      Boolean(routeStore.result?.routeGeoJson.features.length)
+  );
 </script>
 
 <div
@@ -32,4 +36,17 @@
 >
   <span class="h-2 w-2 rounded-full {currentMeta.dotClass}"></span>
   <span>{currentMeta.label}</span>
+  {#if showDirectionKey}
+    <span class="text-slate-600">•</span>
+    <span
+      class="inline-flex items-center gap-1.5 text-[10px] text-slate-300"
+      title="Route color progresses from Emerald (Start) → Blue (Mid) → Purple (Finish)"
+    >
+      <span>Start</span>
+      <span
+        class="h-1.5 w-8 rounded-full bg-gradient-to-r from-emerald-500 via-blue-500 to-purple-500"
+      ></span>
+      <span>End</span>
+    </span>
+  {/if}
 </div>
