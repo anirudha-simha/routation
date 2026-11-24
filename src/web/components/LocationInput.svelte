@@ -56,15 +56,23 @@
 </script>
 
 {#snippet rowActions(loc: GeoLocation, index: number, isSelected: boolean)}
+  {@const hasDistinctName = Boolean(loc.name && loc.name !== loc.fullAddress)}
   <button
     type="button"
     onclick={() => routeStore.selectLocation(loc.id)}
     class="min-w-0 flex-1 flex items-center justify-between gap-1.5 text-left cursor-pointer group"
-    title="Click to fly to pin & open Google Maps preview"
+    title={`${loc.name}${hasDistinctName ? ` — ${loc.fullAddress}` : ""} (click to fly to pin)`}
   >
-    <span class="truncate font-medium group-hover:text-blue-300 transition-colors">
-      {loc.fullAddress}
-    </span>
+    <div class="min-w-0 flex-1">
+      <div class="truncate font-medium group-hover:text-blue-300 transition-colors">
+        {loc.name || loc.fullAddress}
+      </div>
+      {#if hasDistinctName}
+        <div class="truncate text-[10px] text-slate-400">
+          {loc.fullAddress}
+        </div>
+      {/if}
+    </div>
     <MapPin
       class="h-3 w-3 shrink-0 transition-opacity {isSelected
         ? 'text-blue-400 opacity-100'
@@ -77,14 +85,18 @@
     onclick={() => removeLocation(index)}
     class="shrink-0 rounded p-0.5 text-slate-500 hover:bg-slate-800 hover:text-slate-200 cursor-pointer transition"
     title="Remove location"
-    aria-label={`Remove ${loc.fullAddress}`}
+    aria-label={`Remove ${loc.name || loc.fullAddress}`}
   >
     <X class="h-3.5 w-3.5" />
   </button>
 {/snippet}
 
 <div class="flex flex-col gap-2">
-  <LocationSearchBox {placeholder} onSelect={addGeoLocation} />
+  <LocationSearchBox
+    {placeholder}
+    bias={single ? undefined : routeStore.home}
+    onSelect={addGeoLocation}
+  />
 
   {#if single && values.length > 0}
     {@const home = values[0]}

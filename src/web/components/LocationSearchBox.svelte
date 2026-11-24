@@ -1,17 +1,25 @@
 <script lang="ts">
   import { Combobox } from "bits-ui";
   import { resource } from "runed";
-  import { GeoLocation, PhotonGeoCoder } from "../../core";
+  import {
+    formatMiles,
+    GeoLocation,
+    haversineMeters,
+    type LatLng,
+    PhotonGeoCoder,
+  } from "../../core";
 
   const photon = new PhotonGeoCoder();
 
   interface Props {
     placeholder?: string;
+    bias?: LatLng;
     onSelect: (loc: GeoLocation) => void;
   }
 
   let {
     placeholder = "Search address, place, or lat, lng...",
+    bias,
     onSelect,
   }: Props = $props();
 
@@ -20,8 +28,9 @@
   let open = $state(false);
 
   const search = resource(
-    () => inputText.trim(),
-    async (query) => (query.length >= 3 ? photon.lookup(query) : []),
+    () => ({ query: inputText.trim(), bias }),
+    async ({ query, bias: b }) =>
+      query.length >= 3 ? photon.lookup(query, b) : [],
     { debounce: 300, initialValue: [] as GeoLocation[] }
   );
 
@@ -67,17 +76,38 @@
 
   {#if search.current.length > 0}
     <Combobox.Content
-      class="z-50 mt-1 max-h-52 w-[var(--bits-combobox-anchor-width)] overflow-y-auto rounded-lg border border-slate-700 bg-slate-900 p-1 shadow-xl"
+      class="z-50 mt-1 max-h-60 w-[var(--bits-combobox-anchor-width)] overflow-y-auto rounded-lg border border-slate-700 bg-slate-900 p-1 shadow-xl"
     >
       {#each search.current as option (option.id)}
+        {@const hasDistinctName = Boolean(
+          option.name && option.name !== option.fullAddress
+        )}
         <Combobox.Item
           value={option.id}
-          label={option.fullAddress}
-          class="flex cursor-pointer items-center justify-between rounded-md px-2.5 py-1.5 text-xs text-slate-200 hover:bg-blue-600/20 data-[highlighted]:bg-blue-600/30"
+          label={hasDistinctName
+            ? `${option.name} — ${option.fullAddress}`
+            : option.fullAddress}
+          class="flex cursor-pointer items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-xs text-slate-200 hover:bg-blue-600/20 data-[highlighted]:bg-blue-600/30"
         >
-          <span class="truncate">{option.fullAddress}</span>
-          <span class="ml-2 shrink-0 font-mono text-[10px] text-slate-400">
-            {option.lat.toFixed(3)}, {option.lng.toFixed(3)}
+          <div class="min-w-0 flex-1">
+            {#if hasDistinctName}
+              <div class="truncate font-semibold text-slate-100">
+                {option.name}
+              </div>
+              <div class="truncate text-[11px] text-slate-400">
+                {option.fullAddress}
+              </div>
+            {:else}
+              <div class="truncate text-slate-100">{option.fullAddress}</div>
+            {/if}
+          </div>
+
+          <span class="shrink-0 font-mono text-[10px] text-slate-400">
+            {#if bias}
+              {formatMiles(haversineMeters(bias, option))} mi
+            {:else}
+              {option.lat.toFixed(2)}, {option.lng.toFixed(2)}
+            {/if}
           </span>
         </Combobox.Item>
       {/each}

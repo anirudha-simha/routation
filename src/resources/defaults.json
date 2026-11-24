@@ -26,7 +26,7 @@
     },
     {
       "id": "stop-2",
-      "name": "Twin Peaks Summit",
+      "name": "Twin Peaks",
       "building": "501",
       "street": "Twin Peaks Blvd",
       "city": "San Francisco",
@@ -59,7 +59,7 @@
     },
     {
       "id": "stop-5",
-      "name": "Golden Gate Bridge Welcome Center",
+      "name": "Golden Gate Bridge",
       "street": "Golden Gate Bridge Toll Plaza",
       "city": "San Francisco",
       "state": "California",
@@ -110,7 +110,7 @@
     },
     {
       "id": "stop-10",
-      "name": "Lombard Street Crooked Block",
+      "name": "Lombard Street",
       "building": "1070",
       "street": "Lombard St",
       "city": "San Francisco",

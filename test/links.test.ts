@@ -79,15 +79,17 @@ describe("InfoCardGenerator", () => {
       const url = String(input);
       if (url.includes("nominatim.openstreetmap.org")) {
         return new Response(
-          JSON.stringify({
-            name: "Painted Ladies",
-            extratags: {
-              opening_hours: "Mo-Su 09:00-18:00",
-              website: "https://sfrecpark.org/painted-ladies",
-              phone: "+1 415-831-2700",
-              wikipedia: "en:Painted Ladies",
+          JSON.stringify([
+            {
+              name: "Painted Ladies",
+              extratags: {
+                opening_hours: "Mo-Su 09:00-18:00",
+                website: "https://sfrecpark.org/painted-ladies",
+                phone: "+1 415-831-2700",
+                wikipedia: "en:Painted Ladies",
+              },
             },
-          }),
+          ]),
           { status: 200 }
         );
       }
@@ -133,6 +135,178 @@ describe("InfoCardGenerator", () => {
     expect(card.websiteUrl).toBe("https://sfrecpark.org/painted-ladies");
     expect(card.thumbnailUrl).toContain("thumb.wikimedia.org");
     expect(card.wikipediaUrl).toBe("https://en.wikipedia.org/wiki/Painted_Ladies");
+  });
+
+  it("surfaces OSM business metadata and prefers the richest matching OSM object over transit stops", async () => {
+    const spy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("nominatim.openstreetmap.org")) {
+        return new Response(
+          JSON.stringify([
+            {
+              name: "Tartine Bakery",
+              extratags: { public_transport: "stop_position" },
+            },
+            {
+              name: "Tartine Bakery",
+              extratags: {
+                opening_hours: "Mo-Su 07:30-17:00",
+                website: "https://tartinebakery.com",
+                phone: "+1-415-487-2600",
+                cuisine: "bakery;coffee_shop",
+                wheelchair: "yes",
+                description: "Famous artisan sourdough bakery in the Mission.",
+              },
+            },
+          ]),
+          { status: 200 }
+        );
+      }
+      return new Response(JSON.stringify({ query: { pages: {} } }), {
+        status: 200,
+      });
+    });
+
+    const generator = new InfoCardGenerator(spy as unknown as typeof fetch);
+    const stop = new GeoLocation({
+      name: "Tartine Bakery",
+      street: "600 Guerrero St",
+      city: "San Francisco",
+      state: "California",
+      lat: 37.7614,
+      lng: -122.4241,
+    });
+
+    const card = await generator.generate(stop);
+    expect(card.openingHours).toBe("Mo-Su 07:30-17:00");
+    expect(card.websiteUrl).toBe("https://tartinebakery.com/");
+    expect(card.phone).toBe("+1-415-487-2600");
+    expect(card.cuisine).toBe("Bakery • Coffee Shop");
+    expect(card.wheelchair).toBe("Wheelchair accessible");
+    expect(card.summary).toBe("Famous artisan sourdough bakery in the Mission.");
+    // Must not call public Overpass endpoints
+    expect(
+      spy.mock.calls.some(([u]) => String(u).includes("overpass"))
+    ).toBe(false);
+  });
+
+  it("ranks Wikipedia geosearch candidates so exact landmarks beat nearby partial matches", async () => {
+    let wikiUrl = "";
+    const fakeFetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("nominatim.openstreetmap.org")) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      if (url.includes("en.wikipedia.org/w/api.php")) {
+        wikiUrl = url;
+        return new Response(
+          JSON.stringify({
+            query: {
+              pages: {
+                "1": {
+                  title: "UCSF/Chase Center station",
+                  description: "Muni Metro light rail station",
+                  extract: "Light rail station outside Chase Center.",
+                  fullurl: "https://en.wikipedia.org/wiki/UCSF/Chase_Center_station",
+                },
+                "2": {
+                  title: "Chase Center",
+                  description: "Indoor arena in San Francisco",
+                  extract: "Chase Center is an indoor arena in Mission Bay.",
+                  fullurl: "https://en.wikipedia.org/wiki/Chase_Center",
+                },
+              },
+            },
+          }),
+          { status: 200 }
+        );
+      }
+      return new Response("Not Found", { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const generator = new InfoCardGenerator(fakeFetch);
+    const stop = new GeoLocation({
+      name: "Chase Center",
+      street: "1 Warriors Way",
+      city: "San Francisco",
+      state: "California",
+      lat: 37.768,
+      lng: -122.3877,
+    });
+
+    const card = await generator.generate(stop);
+    expect(wikiUrl).toContain("ggslimit=15");
+    expect(wikiUrl).toContain("pilimit=max");
+    expect(wikiUrl).toContain("exlimit=max");
+    expect(card.subtitle).toBe("Indoor arena in San Francisco");
+    expect(card.wikipediaUrl).toBe("https://en.wikipedia.org/wiki/Chase_Center");
+  });
+
+  it("prefers OSM's explicit English wikipedia tag over a weaker proximity geosearch match", async () => {
+    const fakeFetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("nominatim.openstreetmap.org")) {
+        return new Response(
+          JSON.stringify([
+            {
+              name: "Fisherman's Wharf",
+              extratags: {
+                website: "https://fishermanswharf.org/",
+                wikipedia: "en:Fisherman's Wharf, San Francisco",
+              },
+            },
+          ]),
+          { status: 200 }
+        );
+      }
+      if (url.includes("titles=Fisherman")) {
+        return new Response(
+          JSON.stringify({
+            query: {
+              pages: {
+                "42": {
+                  title: "Fisherman's Wharf, San Francisco",
+                  description: "Neighborhood and tourist attraction",
+                  extract: "Fisherman's Wharf is a waterfront neighborhood.",
+                  fullurl:
+                    "https://en.wikipedia.org/wiki/Fisherman%27s_Wharf,_San_Francisco",
+                },
+              },
+            },
+          }),
+          { status: 200 }
+        );
+      }
+      // Proximity geosearch returned unrelated nearby pages
+      return new Response(
+        JSON.stringify({
+          query: {
+            pages: {
+              "99": {
+                title: "Aquarium of the Bay",
+                description: "Public aquarium",
+                extract: "Aquarium at Pier 39.",
+              },
+            },
+          },
+        }),
+        { status: 200 }
+      );
+    }) as unknown as typeof fetch;
+
+    const generator = new InfoCardGenerator(fakeFetch);
+    const stop = new GeoLocation({
+      name: "Fisherman's Wharf (Pier 39)",
+      street: "The Embarcadero & Beach St",
+      city: "San Francisco",
+      state: "California",
+      lat: 37.8087,
+      lng: -122.4098,
+    });
+
+    const card = await generator.generate(stop);
+    expect(card.subtitle).toBe("Neighborhood and tourist attraction");
+    expect(card.websiteUrl).toBe("https://fishermanswharf.org/");
   });
 
   it("converts OSM File: and commons.wikimedia.org/wiki/File: tags to Special:FilePath thumbnails", () => {

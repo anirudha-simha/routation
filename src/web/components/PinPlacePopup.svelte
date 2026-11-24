@@ -1,9 +1,11 @@
 <script lang="ts">
+  import Accessibility from "@lucide/svelte/icons/accessibility";
   import Clock from "@lucide/svelte/icons/clock";
   import ExternalLink from "@lucide/svelte/icons/external-link";
   import Globe from "@lucide/svelte/icons/globe";
   import MapPin from "@lucide/svelte/icons/map-pin";
   import Phone from "@lucide/svelte/icons/phone";
+  import Utensils from "@lucide/svelte/icons/utensils";
   import { resource } from "runed";
   import { GeoLocation, infoCardGenerator } from "../../core";
 
@@ -20,15 +22,21 @@
 
   // Declaratively resolve the rich PlaceInfoCard whenever `location` changes
   const cardRes = resource(
-    () => location,
-    (loc) => {
+    () => location.id,
+    () => {
       imageError = false;
-      return infoCardGenerator.generate(loc);
+      showMapEmbed = false;
+      return infoCardGenerator.generate(location);
     }
   );
 
-  // Render the synchronous base card immediately while async Nominatim/Wikipedia enrichment resolves
-  let card = $derived(cardRes.current ?? infoCardGenerator.getBaseCard(location));
+  // Immediately show the synchronous base card for the *current* location while loading
+  // so switching pins never flashes the previous pin's photo/details.
+  let card = $derived(
+    !cardRes.loading && cardRes.current
+      ? cardRes.current
+      : infoCardGenerator.getBaseCard(location)
+  );
   let showSeparateAddress = $derived(
     Boolean(card.address && card.address !== card.title)
   );
@@ -67,6 +75,14 @@
     </div>
   </div>
 
+  <!-- Subtle shimmer while Nominatim/Wikipedia details resolve -->
+  {#if cardRes.loading}
+    <div class="flex items-center gap-1.5 text-[11px] text-slate-400">
+      <span class="h-2 w-2 rounded-full bg-blue-400 animate-pulse"></span>
+      <span>Loading place details…</span>
+    </div>
+  {/if}
+
   <!-- Photo Thumbnail + Short Summary (from Wikipedia / OSM Nominatim Commons when available) -->
   {#if card.thumbnailUrl && !imageError}
     <div class="overflow-hidden rounded-md border border-slate-200 bg-slate-100">
@@ -86,13 +102,23 @@
     </p>
   {/if}
 
-  <!-- Local Business Metadata (from OpenStreetMap extratags: hours, website, phone) -->
-  {#if card.openingHours || card.websiteUrl || card.phone}
+  <!-- Local Business Metadata (from OpenStreetMap Nominatim extratags) -->
+  {#if card.openingHours || card.websiteUrl || card.phone || card.cuisine || card.wheelchair}
     <div class="flex flex-col gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-[11px] text-slate-700">
+      {#if card.cuisine}
+        <div class="flex items-center gap-1.5">
+          <Utensils class="h-3 w-3 shrink-0 text-slate-500" />
+          <span class="truncate">{card.cuisine}</span>
+        </div>
+      {/if}
       {#if card.openingHours}
         <div class="flex items-start gap-1.5">
           <Clock class="h-3 w-3 mt-0.5 shrink-0 text-slate-500" />
-          <span class="break-words">{card.openingHours}</span>
+          <div class="flex flex-col gap-0.5 break-words">
+            {#each card.openingHours.split(";").map((s) => s.trim()).filter(Boolean) as rule}
+              <span>{rule}</span>
+            {/each}
+          </div>
         </div>
       {/if}
       {#if card.websiteUrl}
@@ -112,6 +138,12 @@
         <div class="flex items-center gap-1.5">
           <Phone class="h-3 w-3 shrink-0 text-slate-500" />
           <span>{card.phone}</span>
+        </div>
+      {/if}
+      {#if card.wheelchair}
+        <div class="flex items-center gap-1.5">
+          <Accessibility class="h-3 w-3 shrink-0 text-slate-500" />
+          <span>{card.wheelchair}</span>
         </div>
       {/if}
     </div>

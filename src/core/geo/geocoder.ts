@@ -7,7 +7,7 @@ export abstract class AddressLookup {
    * Subclasses implement provider-specific address search (e.g. Photon `/api/?q=...`)
    * and return matching GeoLocations.
    */
-  abstract addressLookup(address: string): Promise<GeoLocation[]>;
+  abstract addressLookup(address: string, bias?: LatLng): Promise<GeoLocation[]>;
 
   /**
    * Subclasses implement provider-specific reverse geocoding (e.g. Photon `/reverse?lat=...&lon=...`)
@@ -19,20 +19,20 @@ export abstract class AddressLookup {
    * Automatically routes a raw user string to `latLongLookup` if it's a `"lat, lng"` pair,
    * or `addressLookup` if it's a place/address query.
    */
-  async lookup(input: string): Promise<GeoLocation[]> {
+  async lookup(input: string, bias?: LatLng): Promise<GeoLocation[]> {
     const trimmed = input.trim();
     if (!trimmed) return [];
 
     const coords = this.parseCoordinateInput(trimmed);
     return coords
       ? this.latLongLookup(coords)
-      : this.addressLookup(trimmed);
+      : this.addressLookup(trimmed, bias);
   }
 
   /**
    * Resolves a query string into the single best matching GeoLocation.
    */
-  async resolve(input: string): Promise<GeoLocation> {
+  async resolve(input: string, bias?: LatLng): Promise<GeoLocation> {
     const trimmed = input.trim();
     if (!trimmed) {
       throw new Error("Location query cannot be empty.");
@@ -45,7 +45,7 @@ export abstract class AddressLookup {
       return new GeoLocation({ lat: coords.lat, lng: coords.lng });
     }
 
-    const results = await this.lookup(trimmed);
+    const results = await this.lookup(trimmed, bias);
     if (results.length === 0) {
       throw new Error(`Could not resolve location: "${trimmed}"`);
     }

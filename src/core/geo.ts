@@ -26,11 +26,9 @@ export function formatDuration(seconds: number): string {
 
 /**
  * Computes the great-circle (Haversine) distance in meters between two coordinates.
- *Used for:
- * 1. Re-ranking geocoder candidates by distance from Home.
- * 2. Fallback distance/duration estimation if OSRM is unreachable.
- *
- * TODO (internals): Implement the Haversine formula (or review the placeholder below).
+ * Used for:
+ * 1. Instant search-dropdown distance badges from Home (0 API calls).
+ * 2. Fallback distance/duration estimation in `NoSolver` or when OSRM is unreachable.
  */
 export function haversineMeters(a: LatLng, b: LatLng): number {
   const toRad = (deg: number) => (deg * Math.PI) / 180;
