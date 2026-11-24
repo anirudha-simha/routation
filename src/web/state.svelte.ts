@@ -1,11 +1,9 @@
 import { PersistedState } from "runed";
 import {
-  type ByokProviderId,
   createGeoLocation,
   defaultProviderContext,
   type GeoLocation,
   type GeoLocationInit,
-  type LocalMatrixSource,
   type OptimizedRouteResult,
   type OsrmProfile,
   type RouteMode,
@@ -15,10 +13,15 @@ import {
 } from "../core";
 import defaults from "../resources/defaults.json";
 
+const IMPLEMENTED_SOLVERS: ReadonlySet<SolverEngineId> = new Set([
+  "osrm-trip",
+  "no-solver",
+]);
+
 /**
  * Custom `PersistedState` serializer for `GeoLocation[]` arrays in `localStorage`:
  * 1. Safely catches malformed/corrupted `localStorage` JSON without crashing startup.
- * 2. Filters out any invalid items missing numeric `lat` / `lng`.
+ * 2. Filters out any invalid items missing finite numeric `lat` / `lng`.
  * 3. Strips cached `fullAddress` and re-hydrates each item via `createGeoLocation`
  *    so derived address fields stay up to date.
  */
@@ -34,7 +37,9 @@ const geoLocationArraySerializer = {
             typeof item === "object" &&
             item !== null &&
             typeof (item as Record<string, unknown>).lat === "number" &&
-            typeof (item as Record<string, unknown>).lng === "number"
+            Number.isFinite((item as Record<string, unknown>).lat) &&
+            typeof (item as Record<string, unknown>).lng === "number" &&
+            Number.isFinite((item as Record<string, unknown>).lng)
         )
         .map(({ fullAddress: _ignored, ...rest }) =>
           createGeoLocation(rest as unknown as GeoLocationInit)
@@ -80,10 +85,6 @@ class RouteStore {
     "car"
   );
 
-  localMatrixSource = $state<LocalMatrixSource>("osrm-table");
-  byokProvider = $state<ByokProviderId>("openrouteservice");
-  apiKey = $state("");
-
   isOptimizing = $state(false);
   #solvedSignature = $state<string | null>(null);
 
@@ -94,13 +95,11 @@ class RouteStore {
 
   readonly #inputSignature = $derived(
     JSON.stringify([
-      this.home?.id,
-      this.stops.map((s) => s.id),
+      this.home ? `${this.home.id}:${this.home.lat},${this.home.lng}` : null,
+      this.stops.map((s) => `${s.id}:${s.lat},${s.lng}`),
       this.mode,
       this.solverEngine,
       this.osrmProfile,
-      this.localMatrixSource,
-      this.byokProvider,
     ])
   );
 
@@ -136,9 +135,12 @@ class RouteStore {
   }
 
   get solverEngine(): SolverEngineId {
-    return this.#solverEngine.current;
+    return IMPLEMENTED_SOLVERS.has(this.#solverEngine.current)
+      ? this.#solverEngine.current
+      : "osrm-trip";
   }
   set solverEngine(value: SolverEngineId) {
+    if (!IMPLEMENTED_SOLVERS.has(value)) return;
     this.#solverEngine.current = value;
   }
 
@@ -166,7 +168,15 @@ class RouteStore {
   }
 
   selectLocation(id: string | null) {
-    this.selectedLocationId = id;
+    if (!id) {
+      this.selectedLocationId = null;
+      return;
+    }
+    const exists =
+      this.home?.id === id || this.stops.some((stop) => stop.id === id);
+    if (exists) {
+      this.selectedLocationId = id;
+    }
   }
 
   async optimize(): Promise<void> {
@@ -178,6 +188,7 @@ class RouteStore {
       return;
     }
 
+    const requestSignature = this.#inputSignature;
     this.isOptimizing = true;
     this.errorMessage = null;
     this.statusMessage = `Running ${this.solverEngine} solver...`;
@@ -192,9 +203,6 @@ class RouteStore {
             solverEngine: this.solverEngine,
             solverOptions: {
               osrmProfile: this.osrmProfile,
-              localMatrixSource: this.localMatrixSource,
-              byokProvider: this.byokProvider,
-              apiKey: this.apiKey.trim() || undefined,
             },
           },
         },
@@ -204,13 +212,19 @@ class RouteStore {
         }
       );
       this.result = res;
-      const orderedNonHomeStops = res.orderedLegs
-        .filter((leg) => !leg.isHome)
-        .map((leg) => leg.stop);
-      if (orderedNonHomeStops.length > 0) {
-        this.#stops.current = orderedNonHomeStops;
+
+      // Only overwrite `stops` and mark `"optimized"` if inputs did not change mid-flight
+      if (this.#inputSignature === requestSignature) {
+        const orderedNonHomeStops = res.orderedLegs
+          .filter((leg) => !leg.isHome)
+          .map((leg) => leg.stop);
+        if (orderedNonHomeStops.length > 0) {
+          this.#stops.current = orderedNonHomeStops;
+        }
+        this.#solvedSignature = this.#inputSignature;
+      } else {
+        this.#solvedSignature = requestSignature;
       }
-      this.#solvedSignature = this.#inputSignature;
       this.statusMessage = null;
     } catch (err) {
       this.errorMessage =

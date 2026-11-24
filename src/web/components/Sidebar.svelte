@@ -37,12 +37,9 @@
       </p>
     </div>
     <span
-      class="rounded-full px-2.5 py-1 text-xs font-medium border {routeStore.solverEngine ===
-      'byok-api'
-        ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-        : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'}"
+      class="rounded-full px-2.5 py-1 text-xs font-medium border bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
     >
-      {routeStore.solverEngine === "byok-api" ? "BYOK Mode" : "Keyless Mode"}
+      Keyless Mode
     </span>
   </header>
 
@@ -77,6 +74,8 @@
 
   {#if routeStore.statusMessage}
     <div
+      role="status"
+      aria-live="polite"
       class="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-xs text-blue-300"
     >
       {routeStore.statusMessage}
@@ -85,6 +84,7 @@
 
   {#if routeStore.errorMessage}
     <div
+      role="alert"
       class="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300"
     >
       {routeStore.errorMessage}

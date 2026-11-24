@@ -107,6 +107,8 @@ export class OsrmSolver extends RouteSolver {
       case "ROUND_TRIP_END_CLOSEST_TO_HOME":
       case "ROUND_TRIP_START_CLOSEST_TO_HOME":
         return [home, ...stops];
+      default:
+        throw new Error(`Unsupported route mode: "${String(mode)}".`);
     }
   }
 
@@ -137,6 +139,8 @@ export class OsrmSolver extends RouteSolver {
         tripParams.set("roundtrip", "true");
         tripParams.set("source", "first");
         break;
+      default:
+        throw new Error(`Unsupported route mode: "${String(mode)}".`);
     }
 
     return tripParams;
@@ -163,6 +167,16 @@ export class OsrmSolver extends RouteSolver {
     if (tripData.code !== "Ok" || !tripData.trips?.[0] || !tripData.waypoints) {
       throw new Error(
         `OSRM /trip failed (${tripData.code}): ${tripData.message ?? "no trip returned"}`
+      );
+    }
+
+    if (
+      tripData.trips.length !== 1 ||
+      tripData.waypoints.length !== requestNodes.length ||
+      !tripData.waypoints.every((wp) => wp && wp.trips_index === 0)
+    ) {
+      throw new Error(
+        "One or more stops cannot be reached by road from the rest of the route."
       );
     }
 
@@ -229,6 +243,29 @@ export class OsrmSolver extends RouteSolver {
     }
 
     const route = routeData.routes[0];
+    const reversedFirstLegSeconds = route.legs[0]?.duration ?? Infinity;
+    const reversedLastLegSeconds =
+      route.legs[route.legs.length - 1]?.duration ?? Infinity;
+
+    // On asymmetric one-way street grids, reversing the cycle can occasionally make the
+    // target start/end leg slower than the forward tour; keep forward `/trip` if so.
+    const reversalMadeTargetWorse =
+      (input.mode === "ROUND_TRIP_END_CLOSEST_TO_HOME" &&
+        reversedLastLegSeconds > forwardLastLegSeconds) ||
+      (input.mode === "ROUND_TRIP_START_CLOSEST_TO_HOME" &&
+        reversedFirstLegSeconds > forwardFirstLegSeconds);
+
+    if (reversalMadeTargetWorse) {
+      const forwardStops = [...solvedInputIndices, 0].map(
+        (idx) => requestNodes[idx]
+      );
+      return {
+        orderedStops: forwardStops,
+        legs: this.toLegMetrics(trip.legs),
+        routeGeoJson: this.toFeatureCollection(trip.geometry),
+      };
+    }
+
     return {
       orderedStops,
       legs: this.toLegMetrics(route.legs),

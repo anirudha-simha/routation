@@ -17,8 +17,9 @@ export interface KeyValueCache {
 export interface RateLimiter {
   /**
    * Schedules `fn` so consecutive calls are separated by at least `minIntervalMs`.
+   * If `signal` aborts before `fn` starts, cancels immediately without burning a rate-limit slot.
    */
-  schedule<T>(fn: () => Promise<T>): Promise<T>;
+  schedule<T>(fn: () => Promise<T>, signal?: AbortSignal): Promise<T>;
 }
 
 export interface ProviderContext {
@@ -105,14 +106,28 @@ export function createRateLimiter(minIntervalMs: number): RateLimiter {
   let queue: Promise<unknown> = Promise.resolve();
 
   return {
-    schedule<T>(fn: () => Promise<T>): Promise<T> {
+    schedule<T>(fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
       const run = async (): Promise<T> => {
+        signal?.throwIfAborted();
         const now = Date.now();
         const waitMs = Math.max(0, nextAllowedTime - now);
-        nextAllowedTime = Math.max(now, nextAllowedTime) + minIntervalMs;
         if (waitMs > 0) {
-          await new Promise((resolve) => setTimeout(resolve, waitMs));
+          await new Promise<void>((resolve, reject) => {
+            const onAbort = () => {
+              clearTimeout(timer);
+              reject(
+                signal?.reason ?? new DOMException("Aborted", "AbortError")
+              );
+            };
+            const timer = setTimeout(() => {
+              signal?.removeEventListener("abort", onAbort);
+              resolve();
+            }, waitMs);
+            signal?.addEventListener("abort", onAbort, { once: true });
+          });
         }
+        signal?.throwIfAborted();
+        nextAllowedTime = Date.now() + minIntervalMs;
         return fn();
       };
       const result = queue.then(run, run);

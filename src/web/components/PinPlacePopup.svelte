@@ -20,14 +20,10 @@
   let showMapEmbed = $state(false);
   let imageError = $state(false);
 
-  // Declaratively resolve the rich PlaceInfoCard whenever `location` changes
+  // Declaratively resolve the rich PlaceInfoCard with automatic AbortSignal cancellation
   const cardRes = resource(
-    () => location.id,
-    () => {
-      imageError = false;
-      showMapEmbed = false;
-      return infoCardGenerator.generate(location);
-    }
+    () => location,
+    (loc, _prev, { signal }) => infoCardGenerator.generate(loc, signal)
   );
 
   // Immediately show the synchronous base card for the *current* location while loading

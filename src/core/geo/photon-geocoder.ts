@@ -51,12 +51,13 @@ export class PhotonGeoCoder extends AddressLookup {
       .map((f) => this.formatPhotonFeature(f))
       .filter((loc): loc is GeoLocation => loc !== null);
 
-    // Deduplicate by `name|fullAddress|roundedCoords` so distinct branches on the same road survive
+    // Deduplicate by `name|fullAddress|roundedCoords` AND `loc.id` so Svelte keyed `#each` never collides
     const seen = new Set<string>();
     return locations.filter((loc) => {
-      const key = `${loc.name}|${loc.fullAddress}|${loc.lat.toFixed(3)},${loc.lng.toFixed(3)}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
+      const areaKey = `${loc.name}|${loc.fullAddress}|${loc.lat.toFixed(3)},${loc.lng.toFixed(3)}`;
+      if (seen.has(areaKey) || seen.has(loc.id)) return false;
+      seen.add(areaKey);
+      seen.add(loc.id);
       return true;
     });
   }
@@ -95,6 +96,7 @@ export class PhotonGeoCoder extends AddressLookup {
         }
       }
     } catch {
+      signal?.throwIfAborted();
       // Fall through to raw coordinate GeoLocation below
     }
 
@@ -150,6 +152,7 @@ export class PhotonGeoCoder extends AddressLookup {
       await this.ctx.cache.set(cacheKey, features);
       return features;
     } catch {
+      signal?.throwIfAborted();
       return [];
     }
   }
@@ -159,10 +162,10 @@ export class PhotonGeoCoder extends AddressLookup {
     if (this.ctx.userAgent) {
       headers["User-Agent"] = this.ctx.userAgent;
     }
-    return this.ctx.defaultLimiter.schedule(() => {
-      signal?.throwIfAborted();
-      return this.ctx.fetch(url, { headers, signal });
-    });
+    return this.ctx.defaultLimiter.schedule(
+      () => this.ctx.fetch(url, { headers, signal }),
+      signal
+    );
   }
 
   /**

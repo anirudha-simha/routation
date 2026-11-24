@@ -4,9 +4,11 @@ import {
   createGeoLocation,
   createRateLimiter,
   haversineMeters,
+  NoSolver,
   orientRoundTripLoop,
   OsrmSolver,
   PhotonGeoCoder,
+  runRouteOptimizationPipeline,
 } from "../src/core";
 
 describe("parseCoordinateInput & haversineMeters", () => {
@@ -229,5 +231,161 @@ describe("OsrmSolver (fixture tests)", () => {
       "home",
     ]);
     expect(out.legs[2].durationSeconds).toBe(300);
+  });
+
+  it("keeps forward /trip loop if asymmetric one-way streets make reversed target leg slower", async () => {
+    const mockFetch: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url.includes("/trip/")) {
+        return new Response(
+          JSON.stringify({
+            code: "Ok",
+            waypoints: [
+              { waypoint_index: 0, trips_index: 0, location: [home.lng, home.lat], name: "Home" },
+              { waypoint_index: 1, trips_index: 0, location: [s1.lng, s1.lat], name: "S1" },
+              { waypoint_index: 2, trips_index: 0, location: [s2.lng, s2.lat], name: "S2" },
+            ],
+            trips: [
+              {
+                distance: 10000,
+                duration: 900,
+                legs: [
+                  { distance: 3000, duration: 280 }, // Home -> s1 (280s)
+                  { distance: 4000, duration: 320 },
+                  { distance: 3000, duration: 300 }, // s2 -> Home (300s)
+                ],
+                geometry: {
+                  type: "LineString",
+                  coordinates: [
+                    [home.lng, home.lat],
+                    [s1.lng, s1.lat],
+                    [s2.lng, s2.lat],
+                    [home.lng, home.lat],
+                  ],
+                },
+              },
+            ],
+          }),
+          { status: 200 }
+        );
+      }
+      // Reversed /route has a one-way bridge detour making s1 -> Home 650s (> 300s!)
+      return new Response(
+        JSON.stringify({
+          code: "Ok",
+          routes: [
+            {
+              distance: 15000,
+              duration: 1300,
+              legs: [
+                { distance: 3500, duration: 330 },
+                { distance: 4000, duration: 320 },
+                { distance: 7500, duration: 650 },
+              ],
+              geometry: { type: "LineString", coordinates: [] },
+            },
+          ],
+        }),
+        { status: 200 }
+      );
+    };
+
+    const ctx = createDefaultContext({
+      fetch: mockFetch,
+      defaultLimiter: createRateLimiter(0),
+    });
+    const out = await new OsrmSolver().solve(
+      { home, stops: [s1, s2], mode: "ROUND_TRIP_END_CLOSEST_TO_HOME" },
+      ctx
+    );
+
+    expect(out.orderedStops.map((s) => s.id)).toEqual([
+      "home",
+      "s1",
+      "s2",
+      "home",
+    ]);
+    expect(out.legs[2].durationSeconds).toBe(300);
+  });
+
+  it("rejects disconnected road components when OSRM returns multiple sub-trips", async () => {
+    const mockFetch: typeof fetch = async () =>
+      new Response(
+        JSON.stringify({
+          code: "Ok",
+          waypoints: [
+            { waypoint_index: 0, trips_index: 0, location: [home.lng, home.lat], name: "Home" },
+            { waypoint_index: 0, trips_index: 1, location: [s1.lng, s1.lat], name: "Alcatraz" },
+          ],
+          trips: [
+            { distance: 0, duration: 0, legs: [], geometry: { type: "LineString", coordinates: [] } },
+            { distance: 0, duration: 0, legs: [], geometry: { type: "LineString", coordinates: [] } },
+          ],
+        }),
+        { status: 200 }
+      );
+
+    const ctx = createDefaultContext({
+      fetch: mockFetch,
+      defaultLimiter: createRateLimiter(0),
+    });
+    await expect(
+      new OsrmSolver().solve({ home, stops: [s1], mode: "ROUND_TRIP_FASTEST" }, ctx)
+    ).rejects.toThrow("cannot be reached by road");
+  });
+});
+
+describe("NoSolver & pipeline bridge waypoints", () => {
+  it("emits a direct LineString geometry and marks bridge waypoints on >8 stops", async () => {
+    const home = createGeoLocation({
+      id: "home",
+      name: "Home",
+      street: "1 Ferry Building",
+      city: "San Francisco",
+      lat: 37.7955,
+      lng: -122.3937,
+    });
+    const stops = Array.from({ length: 9 }, (_, i) =>
+      createGeoLocation({
+        id: `stop-${i + 1}`,
+        name: `Stop ${i + 1}`,
+        street: `${i + 10} Market St`,
+        city: "San Francisco",
+        lat: 37.78 + i * 0.002,
+        lng: -122.4 - i * 0.002,
+      })
+    );
+
+    const noOut = await new NoSolver().solve(
+      { home, stops: stops.slice(0, 2), mode: "OPEN_END_START_AT_HOME" },
+      createDefaultContext()
+    );
+    expect(noOut.routeGeoJson.features).toHaveLength(1);
+
+    const res = await runRouteOptimizationPipeline({
+      home,
+      stops,
+      config: { mode: "OPEN_END_START_AT_HOME", solverEngine: "no-solver" },
+    });
+
+    // 10 total ordered stops (Home + 9 stops) -> 2 bridged links (1..9, 9..10) -> stop-8 is bridge
+    expect(res.googleMapsLinks).toHaveLength(2);
+    const bridges = res.orderedLegs.filter((l) => l.isBridgeWaypoint);
+    expect(bridges).toHaveLength(1);
+    expect(bridges[0].stop.id).toBe("stop-8");
+  });
+});
+
+describe("createRateLimiter cancellation", () => {
+  it("cancels queued aborted callers immediately without consuming rate-limit intervals", async () => {
+    const limiter = createRateLimiter(500);
+    const ac = new AbortController();
+
+    const p1 = limiter.schedule(async () => "first");
+    const p2 = limiter.schedule(async () => "aborted", ac.signal);
+    ac.abort();
+
+    await expect(p1).resolves.toBe("first");
+    await expect(p2).rejects.toThrow();
   });
 });

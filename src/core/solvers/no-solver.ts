@@ -18,6 +18,7 @@ export class NoSolver extends RouteSolver {
     input: SolverInput,
     _ctx: ProviderContext
   ): Promise<SolverOutput> {
+    this.validate(input);
     const { home, stops, mode } = input;
 
     let orderedStops: GeoLocation[];
@@ -43,7 +44,19 @@ export class NoSolver extends RouteSolver {
 
     const routeGeoJson: GeoJSON.FeatureCollection = {
       type: "FeatureCollection",
-      features: [],
+      features:
+        orderedStops.length >= 2
+          ? [
+              {
+                type: "Feature",
+                properties: {},
+                geometry: {
+                  type: "LineString",
+                  coordinates: orderedStops.map((s) => [s.lng, s.lat]),
+                },
+              },
+            ]
+          : [],
     };
 
     return {

@@ -1,6 +1,7 @@
 <script lang="ts">
   import ExternalLink from "@lucide/svelte/icons/external-link";
   import type { BridgedNavLink } from "../../core";
+  import { routeStore } from "../state.svelte";
   import CollapsibleSection from "./CollapsibleSection.svelte";
 
   interface Props {
@@ -8,11 +9,16 @@
   }
 
   let { links }: Props = $props();
+  let isStale = $derived(routeStore.status === "stale");
 </script>
 
 <CollapsibleSection
   title={`Google Maps Navigation${links.length > 1 ? ` (${links.length} Parts)` : ""}`}
-  badge={links.length > 1 ? "Bridged (9 max/link)" : undefined}
+  badge={isStale
+    ? "Out of date"
+    : links.length > 1
+      ? "Bridged (9 max/link)"
+      : undefined}
   badgeClass="text-[11px] text-amber-400"
 >
   {#if links.length > 1}
@@ -21,7 +27,7 @@
     </p>
   {/if}
 
-  <div class="flex flex-col gap-2">
+  <div class="flex flex-col gap-2 transition-opacity {isStale ? 'opacity-60' : ''}">
     {#each links as link (link.batchNumber)}
       <a
         href={link.googleMapsUrl}

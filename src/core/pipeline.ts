@@ -104,7 +104,9 @@ export async function runRouteOptimizationPipeline(
   const travelMode = solverOptions?.osrmProfile ?? "car";
   const googleMapsLinks = GoogleMapsLinkBuilder.buildDirectionsLinks(
     solverOutput.orderedStops,
-    travelMode
+    travelMode,
+    GoogleMapsLinkBuilder.MAX_STOPS_PER_LINK,
+    home.id
   );
 
   const bridgeStopIds = new Set(

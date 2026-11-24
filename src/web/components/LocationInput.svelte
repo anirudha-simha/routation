@@ -35,12 +35,11 @@
     routeStore.selectLocation(entry.id);
   }
 
-  function removeLocation(index: number) {
-    const removed = values[index];
-    if (removed && routeStore.selectedLocationId === removed.id) {
+  function removeLocation(id: string) {
+    if (routeStore.selectedLocationId === id) {
       routeStore.selectLocation(null);
     }
-    values = values.filter((_, i) => i !== index);
+    values = values.filter((v) => v.id !== id);
   }
 
   function handleDndConsider(e: CustomEvent<DndEvent<GeoLocation>>) {
@@ -49,13 +48,16 @@
 
   function handleDndFinalize(e: CustomEvent<DndEvent<GeoLocation>>) {
     dragItems = e.detail.items;
-    if (e.detail.items.some((item, idx) => item.id !== values[idx]?.id)) {
+    if (
+      e.detail.items.length !== values.length ||
+      e.detail.items.some((item, idx) => item.id !== values[idx]?.id)
+    ) {
       values = e.detail.items;
     }
   }
 </script>
 
-{#snippet rowActions(loc: GeoLocation, index: number, isSelected: boolean)}
+{#snippet rowActions(loc: GeoLocation, isSelected: boolean)}
   {@const hasDistinctName = Boolean(loc.name && loc.name !== loc.fullAddress)}
   <button
     type="button"
@@ -82,7 +84,7 @@
 
   <button
     type="button"
-    onclick={() => removeLocation(index)}
+    onclick={() => removeLocation(loc.id)}
     class="shrink-0 rounded p-0.5 text-slate-500 hover:bg-slate-800 hover:text-slate-200 cursor-pointer transition"
     title="Remove location"
     aria-label={`Remove ${loc.name || loc.fullAddress}`}
@@ -107,7 +109,7 @@
       >
         <Home class="h-3 w-3" />
       </span>
-      {@render rowActions(home, 0, isSelected)}
+      {@render rowActions(home, isSelected)}
     </div>
   {:else if !single && dragItems.length > 0}
     <ol
@@ -143,7 +145,7 @@
             {i + 1}
           </span>
 
-          {@render rowActions(loc, i, isSelected)}
+          {@render rowActions(loc, isSelected)}
         </li>
       {/each}
     </ol>

@@ -14,19 +14,22 @@
 
   let { result }: Props = $props();
 
+  let isStale = $derived(routeStore.status === "stale");
   let summaryBadge = $derived(
-    result.totalDistanceMeters > 0 || result.totalDurationSeconds > 0
-      ? `${formatMiles(result.totalDistanceMeters)} mi • ${formatDuration(result.totalDurationSeconds)}`
-      : undefined
+    isStale
+      ? "Out of date"
+      : result.totalDistanceMeters > 0 || result.totalDurationSeconds > 0
+        ? `${formatMiles(result.totalDistanceMeters)} mi • ${formatDuration(result.totalDurationSeconds)}`
+        : undefined
   );
 </script>
 
 <CollapsibleSection
   title={`Ordered Itinerary (${result.orderedLegs.length} stops)`}
   badge={summaryBadge}
-  badgeClass="text-xs font-medium text-emerald-400"
+  badgeClass="text-xs font-medium {isStale ? 'text-amber-400' : 'text-emerald-400'}"
 >
-  <ol class="flex flex-col">
+  <ol class="flex flex-col transition-opacity {isStale ? 'opacity-60' : ''}">
     {#each result.orderedLegs as leg, i (`${i}-${leg.stop.id}`)}
       {@const isSelected = routeStore.selectedLocationId === leg.stop.id}
       {#if i > 0}

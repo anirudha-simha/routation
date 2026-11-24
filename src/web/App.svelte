@@ -1,5 +1,6 @@
 <script lang="ts">
   import { MediaQuery } from "svelte/reactivity";
+  import { watch } from "runed";
   import { PaneGroup, Pane, PaneResizer, type PaneAPI } from "paneforge";
   import Sidebar from "./components/Sidebar.svelte";
   import MapView from "./components/MapView.svelte";
@@ -12,6 +13,17 @@
   let isSecondCollapsed = $state(false);
 
   let isAnyCollapsed = $derived(isFirstCollapsed || isSecondCollapsed);
+
+  // Sync collapsed flags from active pane instances whenever breakpoint layout switches
+  watch(
+    () => isDesktop.current,
+    () => {
+      queueMicrotask(() => {
+        isFirstCollapsed = firstPane?.isCollapsed() ?? false;
+        isSecondCollapsed = secondPane?.isCollapsed() ?? false;
+      });
+    }
+  );
 
   function restoreSplit() {
     firstPane?.resize(isDesktop.current ? 32 : 42);

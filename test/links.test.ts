@@ -347,11 +347,16 @@ describe("InfoCardGenerator", () => {
     expect(card.websiteUrl).toBe("https://fishermanswharf.org/");
   });
 
-  it("converts OSM File: and commons.wikimedia.org/wiki/File: tags to Special:FilePath thumbnails", () => {
+  it("converts OSM File: and commons.wikimedia.org/wiki/File: tags to Special:FilePath thumbnails without crashing on unescaped %", () => {
     expect(
       InfoCardGenerator.resolveCommonsThumbnail("File:Alamo Square SF.jpg")
     ).toBe(
       "https://commons.wikimedia.org/wiki/Special:FilePath/Alamo_Square_SF.jpg?width=320"
+    );
+    expect(
+      InfoCardGenerator.resolveCommonsThumbnail("File:100% Pure SF.jpg")
+    ).toBe(
+      "https://commons.wikimedia.org/wiki/Special:FilePath/100%25_Pure_SF.jpg?width=320"
     );
     expect(
       InfoCardGenerator.resolveCommonsThumbnail(
@@ -360,6 +365,42 @@ describe("InfoCardGenerator", () => {
     ).toBe(
       "https://commons.wikimedia.org/wiki/Special:FilePath/Alamo_Square_SF.jpg?width=320"
     );
+  });
+
+  it("does not cache degraded PlaceInfoCards when upstream returns HTTP 503", async () => {
+    let attempts = 0;
+    const flakyFetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("nominatim.openstreetmap.org")) {
+        attempts++;
+        if (attempts === 1) {
+          return new Response("Service Unavailable", { status: 503 });
+        }
+        return new Response(
+          JSON.stringify([
+            { name: "Coit Tower", extratags: { opening_hours: "10:00-17:00" } },
+          ]),
+          { status: 200 }
+        );
+      }
+      return new Response(JSON.stringify({ query: { pages: {} } }), {
+        status: 200,
+      });
+    }) as unknown as typeof fetch;
+
+    const generator = new InfoCardGenerator(flakyFetch);
+    const stop = createGeoLocation({
+      name: "Coit Tower",
+      city: "San Francisco",
+      lat: 37.8024,
+      lng: -122.4058,
+    });
+
+    const first = await generator.generate(stop);
+    expect(first.openingHours).toBeUndefined();
+
+    const second = await generator.generate(stop);
+    expect(second.openingHours).toBe("10:00-17:00");
   });
 
   it("rejects dangerous non-HTTP schemes in sanitizeHttpUrl", () => {

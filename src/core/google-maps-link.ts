@@ -57,11 +57,14 @@ export class GoogleMapsLinkBuilder {
 
   /**
    * Formats a stop for turn-by-turn directions (`origin`, `destination`, `waypoints`).
-   * Uses `fullAddress` when a street-level address exists; otherwise falls back to exact coordinates
-   * so parks or landmarks without street numbers never mis-route to a city center.
+   * Uses `fullAddress` ONLY when a specific street number or intersection (`&`) exists;
+   * otherwise uses exact `lat,lng` coordinates so unnumbered roads ("The Embarcadero")
+   * or parks never mis-route drivers to an arbitrary road midpoint or city hall.
    */
   private static formatDirectionsStop(stop: GeoLocation): string {
-    if (stop.street) {
+    const hasSpecificStreetAddress =
+      Boolean(stop.building && stop.street) || Boolean(stop.street?.includes("&"));
+    if (hasSpecificStreetAddress) {
       return stop.fullAddress;
     }
     return GoogleMapsLinkBuilder.formatCoords(stop);
@@ -98,20 +101,27 @@ export class GoogleMapsLinkBuilder {
   static buildDirectionsLinks(
     orderedStops: readonly GeoLocation[],
     travelMode: OsrmProfile = "car",
-    maxStopsPerLink = GoogleMapsLinkBuilder.MAX_STOPS_PER_LINK
+    maxStopsPerLink = GoogleMapsLinkBuilder.MAX_STOPS_PER_LINK,
+    homeId?: string
   ): BridgedNavLink[] {
     if (orderedStops.length < 2) {
       return [];
     }
 
-    const chunks = chunkWithOverlap(orderedStops, maxStopsPerLink);
-    const stride = maxStopsPerLink - 1;
+    // Assign human-readable labels matching ItineraryList ("Home" vs "#1..#N")
+    let nonHomeCounter = 0;
+    const stopLabels = orderedStops.map((s) =>
+      homeId && s.id === homeId ? "Home" : `#${++nonHomeCounter}`
+    );
 
-    return chunks.map((chunk, idx) => {
-      const first = chunk[0];
-      const last = chunk[chunk.length - 1];
-      const startNum = idx * stride + 1;
-      const endNum = idx * stride + chunk.length;
+    const indices = orderedStops.map((_, i) => i);
+    const indexChunks = chunkWithOverlap(indices, maxStopsPerLink);
+
+    return indexChunks.map((idxChunk, batchIdx) => {
+      const firstIdx = idxChunk[0];
+      const lastIdx = idxChunk[idxChunk.length - 1];
+      const first = orderedStops[firstIdx];
+      const last = orderedStops[lastIdx];
 
       const params = new URLSearchParams({
         api: "1",
@@ -120,21 +130,21 @@ export class GoogleMapsLinkBuilder {
         travelmode: GoogleMapsLinkBuilder.TRAVEL_MODE_MAP[travelMode],
       });
 
-      const waypoints = chunk
+      const waypoints = idxChunk
         .slice(1, -1)
-        .map((stop) => GoogleMapsLinkBuilder.formatDirectionsStop(stop))
+        .map((i) => GoogleMapsLinkBuilder.formatDirectionsStop(orderedStops[i]))
         .join("|");
       if (waypoints.length > 0) {
         params.set("waypoints", waypoints);
       }
 
       return {
-        batchNumber: idx + 1,
-        stopRangeLabel: `Part ${idx + 1}: Stops #${startNum}–#${endNum}`,
+        batchNumber: batchIdx + 1,
+        stopRangeLabel: `Part ${batchIdx + 1} (${stopLabels[firstIdx]} → ${stopLabels[lastIdx]})`,
         fromName: first.name,
         toName: last.name,
-        stopCount: chunk.length,
-        bridgeStopId: idx > 0 ? first.id : undefined,
+        stopCount: idxChunk.length,
+        bridgeStopId: batchIdx > 0 ? first.id : undefined,
         googleMapsUrl: `${GoogleMapsLinkBuilder.BASE_URL}?${params.toString()}`,
       };
     });

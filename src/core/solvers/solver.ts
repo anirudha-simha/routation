@@ -100,6 +100,9 @@ export function orientRoundTripLoop(params: {
   const { cycleFromHome, mode, forwardFirstLegSeconds, forwardLastLegSeconds } =
     params;
   const rest = cycleFromHome.slice(1);
+  if (rest.length <= 1) {
+    return { orderedIndices: [0, ...rest, 0], reversed: false };
+  }
 
   switch (mode) {
     case "ROUND_TRIP_FASTEST":

@@ -131,7 +131,8 @@ export function createGeoLocation(init: GeoLocationInit): GeoLocation {
 
   const fullAddress = init.fullAddress?.trim() || assembledFull || coordsFallback;
   const id =
-    init.id?.trim() || `${init.lat.toFixed(6)},${init.lng.toFixed(6)}-${name}`;
+    init.id?.trim() ||
+    `${init.lat.toFixed(6)},${init.lng.toFixed(6)}-${osmId ?? fullAddress}-${name}`;
 
   return {
     id,

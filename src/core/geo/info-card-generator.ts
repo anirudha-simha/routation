@@ -50,6 +50,11 @@ interface WikiQueryResponse {
   };
 }
 
+interface LookupOutcome<T> {
+  data: T | null;
+  transientError: boolean;
+}
+
 const STOP_WORDS = new Set(["the", "and", "san", "park"]);
 const MIN_MATCH_SCORE = 0.4;
 
@@ -91,67 +96,95 @@ export class InfoCardGenerator {
    * 1. OpenStreetMap Nominatim (`/lookup` by `osmId` or bounded `/search` by name around `lat,lng`)
    * 2. Wikipedia (`w/api.php` geosearch returning up to 15 ranked candidates, or OSM's explicit `wikipedia` tag)
    */
-  async generate(location: GeoLocation): Promise<PlaceInfoCard> {
-    const cacheKey = `infocard:${location.lat.toFixed(5)},${location.lng.toFixed(5)}:${location.name}`;
-    return this.ctx.cache.getOrLoad(cacheKey, async () => {
-      const card = this.getBaseCard(location);
+  async generate(
+    location: GeoLocation,
+    signal?: AbortSignal
+  ): Promise<PlaceInfoCard> {
+    const cacheKey = `infocard:${location.lat.toFixed(5)},${location.lng.toFixed(5)}:${location.osmId ?? ""}:${location.name}`;
+    const cached = await this.ctx.cache.get<PlaceInfoCard>(cacheKey);
+    if (cached) return cached;
 
-      // Run Nominatim and Wikipedia proximity lookup in parallel so Wikipedia never waits on OSM
-      const [nominatim, geoWiki] = await Promise.all([
-        this.fetchNominatimDetails(location),
-        this.fetchWikipedia(location),
-      ]);
+    const card = this.getBaseCard(location);
 
-      const tags: OsmTags = nominatim?.extratags ?? {};
+    // Run Nominatim and Wikipedia proximity lookup in parallel so Wikipedia never waits on OSM
+    const [nomOutcome, geoWikiOutcome] = await Promise.all([
+      this.fetchNominatimDetails(location, signal),
+      this.fetchWikipedia(location, undefined, signal),
+    ]);
+    signal?.throwIfAborted();
 
-      card.openingHours = tags.opening_hours?.trim() || undefined;
-      card.phone = (tags.phone ?? tags["contact:phone"])?.trim() || undefined;
-      card.websiteUrl = InfoCardGenerator.sanitizeHttpUrl(
-        tags.website ?? tags["contact:website"]
-      )?.href;
-      card.cuisine = InfoCardGenerator.formatCuisine(tags.cuisine);
-      card.wheelchair = InfoCardGenerator.formatWheelchair(tags.wheelchair);
+    let hadTransientError =
+      nomOutcome.transientError || geoWikiOutcome.transientError;
+    const tags: OsmTags = nomOutcome.data?.extratags ?? {};
 
-      // Prefer OSM's explicit English `wikipedia` tag over proximity geosearch when they disagree,
-      // reusing `geoWiki` with zero extra network calls when it already matched that exact article.
-      const osmWikiTitle = InfoCardGenerator.extractEnglishWikiTitle(
-        tags.wikipedia
+    card.openingHours = tags.opening_hours?.trim() || undefined;
+    card.phone = (tags.phone ?? tags["contact:phone"])?.trim() || undefined;
+    card.websiteUrl = InfoCardGenerator.sanitizeHttpUrl(
+      tags.website ?? tags["contact:website"]
+    )?.href;
+    card.cuisine = InfoCardGenerator.formatCuisine(tags.cuisine);
+    card.wheelchair = InfoCardGenerator.formatWheelchair(tags.wheelchair);
+
+    // Prefer OSM's explicit English `wikipedia` tag over proximity geosearch when they disagree,
+    // reusing `geoWiki` with zero extra network calls when it already matched that exact article.
+    const osmWikiTitle = InfoCardGenerator.extractEnglishWikiTitle(
+      tags.wikipedia
+    );
+    let wiki = geoWikiOutcome.data;
+    if (
+      osmWikiTitle &&
+      wiki?.title?.toLowerCase() !== osmWikiTitle.toLowerCase()
+    ) {
+      const exactWikiOutcome = await this.fetchWikipedia(
+        location,
+        osmWikiTitle,
+        signal
       );
-      let wiki = geoWiki;
-      if (
-        osmWikiTitle &&
-        geoWiki?.title?.toLowerCase() !== osmWikiTitle.toLowerCase()
-      ) {
-        wiki = (await this.fetchWikipedia(location, osmWikiTitle)) ?? geoWiki;
-      }
+      signal?.throwIfAborted();
+      hadTransientError ||= exactWikiOutcome.transientError;
+      wiki = exactWikiOutcome.data ?? wiki;
+    }
 
-      if (wiki) {
-        card.subtitle = wiki.description?.trim() || undefined;
-        card.summary = wiki.extract?.trim() || undefined;
-        card.thumbnailUrl = InfoCardGenerator.sanitizeHttpUrl(
-          wiki.thumbnail?.source
-        )?.href;
-        card.wikipediaUrl = InfoCardGenerator.sanitizeHttpUrl(wiki.fullurl)?.href;
-      }
+    if (wiki) {
+      card.subtitle = wiki.description?.trim() || undefined;
+      card.summary = wiki.extract?.trim() || undefined;
+      card.thumbnailUrl = InfoCardGenerator.sanitizeHttpUrl(
+        wiki.thumbnail?.source
+      )?.href;
+      card.wikipediaUrl = InfoCardGenerator.sanitizeHttpUrl(wiki.fullurl)?.href;
+    }
 
-      // Fall back to OSM's own `description` tag if Wikipedia had no summary (common for local businesses)
-      if (!card.summary && tags.description?.trim()) {
-        card.summary = tags.description.trim();
-      }
+    // Fall back to OSM's own `description` tag if Wikipedia had no summary (common for local businesses)
+    if (!card.summary && tags.description?.trim()) {
+      card.summary = tags.description.trim();
+    }
 
-      if (!card.thumbnailUrl) {
-        card.thumbnailUrl = InfoCardGenerator.resolveCommonsThumbnail(
-          tags.image ?? tags.wikimedia_commons
-        );
-      }
+    if (!card.thumbnailUrl) {
+      card.thumbnailUrl = InfoCardGenerator.resolveCommonsThumbnail(
+        tags.image ?? tags.wikimedia_commons
+      );
+    }
 
-      return card;
-    });
+    // Only cache when neither upstream suffered a transient network/5xx/429 failure
+    if (!hadTransientError) {
+      await this.ctx.cache.set(cacheKey, card);
+    }
+
+    return card;
+  }
+
+  private buildHeaders(): Record<string, string> {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (this.ctx.userAgent) {
+      headers["User-Agent"] = this.ctx.userAgent;
+    }
+    return headers;
   }
 
   private async fetchNominatimDetails(
-    location: GeoLocation
-  ): Promise<NominatimPlaceResponse | null> {
+    location: GeoLocation,
+    signal?: AbortSignal
+  ): Promise<LookupOutcome<NominatimPlaceResponse>> {
     try {
       let url: string;
       const stopName = location.name?.trim();
@@ -160,10 +193,8 @@ export class InfoCardGenerator {
         : undefined;
 
       if (location.osmId) {
-        // Exact OSM object lookup when we have an `osmId` from Photon search
         url = `${InfoCardGenerator.NOMINATIM_BASE}/lookup?osm_ids=${encodeURIComponent(location.osmId)}&format=json&extratags=1`;
       } else if (cleanedName && !/^\d/.test(cleanedName)) {
-        // Bounded name search within ~2km of the pin avoids `/reverse` snapping to nearby street furniture
         const d = 0.02;
         const viewbox = `${(location.lng - d).toFixed(5)},${(location.lat + d).toFixed(5)},${(location.lng + d).toFixed(5)},${(location.lat - d).toFixed(5)}`;
         const query = location.city
@@ -182,10 +213,17 @@ export class InfoCardGenerator {
         url = `${InfoCardGenerator.NOMINATIM_BASE}/reverse?lat=${location.lat}&lon=${location.lng}&zoom=18&format=json&extratags=1`;
       }
 
-      const res = await this.ctx.nominatimLimiter.schedule(() =>
-        this.ctx.fetch(url, { headers: { Accept: "application/json" } })
+      const headers = this.buildHeaders();
+      const res = await this.ctx.nominatimLimiter.schedule(
+        () => this.ctx.fetch(url, { headers, signal }),
+        signal
       );
-      if (!res.ok) return null;
+      if (!res.ok) {
+        return {
+          data: null,
+          transientError: res.status === 429 || res.status >= 500,
+        };
+      }
 
       const data: unknown = await res.json();
       const items: NominatimPlaceResponse[] = Array.isArray(data)
@@ -194,11 +232,9 @@ export class InfoCardGenerator {
           ? [data as NominatimPlaceResponse]
           : [];
 
-      if (items.length === 0) return null;
-      if (location.osmId) return items[0];
+      if (items.length === 0) return { data: null, transientError: false };
+      if (location.osmId) return { data: items[0], transientError: false };
 
-      // Keep candidates whose OSM `name` meaningfully matches `stopName`,
-      // then prefer the richest object (e.g., landmark building over a transit stop with the same name).
       const matching = stopName
         ? items.filter(
             (item) =>
@@ -208,32 +244,27 @@ export class InfoCardGenerator {
           )
         : items;
 
-      if (matching.length === 0) return null;
+      if (matching.length === 0) return { data: null, transientError: false };
       matching.sort(
         (a, b) =>
           InfoCardGenerator.scoreOsmRichness(b.extratags) -
           InfoCardGenerator.scoreOsmRichness(a.extratags)
       );
-      return matching[0];
+      return { data: matching[0], transientError: false };
     } catch {
-      return null;
+      signal?.throwIfAborted();
+      return { data: null, transientError: true };
     }
   }
 
-  /**
-   * Unified Wikipedia query against `w/api.php`:
-   * - If given an explicit `exactTitle` (from OSM's `extratags.wikipedia`), fetches `titles=...` directly.
-   * - Otherwise runs a 400m coordinate `generator=geosearch` for up to 15 candidates (with `pilimit=max`
-   *   and `exlimit=max` so MediaWiki populates thumbnails & extracts for every candidate, not just #1)
-   *   and picks the highest-scoring title match.
-   */
   private async fetchWikipedia(
     location: GeoLocation,
-    exactTitle?: string
-  ): Promise<WikiPageItem | null> {
+    exactTitle?: string,
+    signal?: AbortSignal
+  ): Promise<LookupOutcome<WikiPageItem>> {
     const stopName = location.name?.trim();
     if (!exactTitle && (!stopName || /^\d/.test(stopName))) {
-      return null;
+      return { data: null, transientError: false };
     }
 
     try {
@@ -262,10 +293,18 @@ export class InfoCardGenerator {
         params.set("ggslimit", "15");
       }
 
-      const res = await this.ctx.fetch(
-        `${InfoCardGenerator.WIKI_ACTION_API}?${params.toString()}`
+      const headers = this.buildHeaders();
+      const url = `${InfoCardGenerator.WIKI_ACTION_API}?${params.toString()}`;
+      const res = await this.ctx.defaultLimiter.schedule(
+        () => this.ctx.fetch(url, { headers, signal }),
+        signal
       );
-      if (!res.ok) return null;
+      if (!res.ok) {
+        return {
+          data: null,
+          transientError: res.status === 429 || res.status >= 500,
+        };
+      }
 
       const data = (await res.json()) as WikiQueryResponse;
       const pages = Object.values(data.query?.pages ?? {}).filter(
@@ -273,11 +312,10 @@ export class InfoCardGenerator {
       );
 
       if (exactTitle) {
-        return pages[0] ?? null;
+        return { data: pages[0] ?? null, transientError: false };
       }
-      if (!stopName) return null;
+      if (!stopName) return { data: null, transientError: false };
 
-      // Score all returned candidates and pick the best match above threshold
       let bestPage: WikiPageItem | null = null;
       let bestScore = 0;
 
@@ -290,18 +328,13 @@ export class InfoCardGenerator {
         }
       }
 
-      return bestPage;
+      return { data: bestPage, transientError: false };
     } catch {
-      return null;
+      signal?.throwIfAborted();
+      return { data: null, transientError: true };
     }
   }
 
-  /**
-   * Scores how closely a candidate title (Wikipedia or OSM) matches a stop's name (`0` to `1`).
-   * Exact matches score `1.0`; matches after stripping disambiguators like `"(San Francisco)"`
-   * score `0.9`; partial matches use Dice coefficient over meaningful tokens so `"Chase Center"`
-   * beats `"UCSF/Chase Center station"` and `"Japanese Tea Garden"` beats `"San Francisco Botanical Garden"`.
-   */
   static scoreTitleMatch(query: string, candidate: string): number {
     const norm = (s: string) =>
       s
@@ -337,7 +370,6 @@ export class InfoCardGenerator {
     }
     if (overlap === 0) return 0;
 
-    // Dice coefficient scaled below exact/disambiguated matches (max 0.85)
     const dice = (2 * overlap) / (qTokens.size + cTokens.size);
     return Math.min(0.85, dice);
   }
@@ -365,7 +397,6 @@ export class InfoCardGenerator {
 
     const colonIdx = trimmed.indexOf(":");
     const lang = trimmed.slice(0, colonIdx).toLowerCase();
-    // Only query en.wikipedia.org for English tags (or titles containing a colon without a 2-3 char lang prefix)
     if (lang === "en") return trimmed.slice(colonIdx + 1).trim() || undefined;
     if (/^[a-z]{2,3}(-[a-z]+)?$/.test(lang)) return undefined;
     return trimmed;
@@ -398,8 +429,15 @@ export class InfoCardGenerator {
       trimmed.match(/^File:(.+)$/i) ??
       trimmed.match(/wikimedia\.org\/wiki\/File:([^?#]+)/i);
     if (fileMatch?.[1]) {
-      const decoded = decodeURIComponent(fileMatch[1]).trim().replace(/ /g, "_");
-      return `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(decoded)}?width=320`;
+      let rawFileName = fileMatch[1];
+      try {
+        rawFileName = decodeURIComponent(rawFileName);
+      } catch {
+        // Keep raw filename if OSM tag contained an unescaped '%' character
+      }
+      const normalized = rawFileName.trim().replace(/ /g, "_");
+      if (!normalized) return undefined;
+      return `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(normalized)}?width=320`;
     }
 
     const parsed = InfoCardGenerator.sanitizeHttpUrl(trimmed);
