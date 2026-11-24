@@ -148,10 +148,14 @@ export class InfoCardGenerator {
     if (wiki) {
       card.subtitle = wiki.description?.trim() || undefined;
       card.summary = wiki.extract?.trim() || undefined;
-      card.thumbnailUrl = InfoCardGenerator.sanitizeHttpUrl(
-        wiki.thumbnail?.source
-      )?.href;
-      card.wikipediaUrl = InfoCardGenerator.sanitizeHttpUrl(wiki.fullurl)?.href;
+      card.thumbnailUrl = InfoCardGenerator.sanitizeTrustedWikiUrl(
+        wiki.thumbnail?.source,
+        "wikimedia.org"
+      );
+      card.wikipediaUrl = InfoCardGenerator.sanitizeTrustedWikiUrl(
+        wiki.fullurl,
+        "wikipedia.org"
+      );
     }
 
     // Fall back to OSM's own `description` tag if Wikipedia had no summary (common for local businesses)
@@ -440,20 +444,65 @@ export class InfoCardGenerator {
       return `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(normalized)}?width=320`;
     }
 
-    const parsed = InfoCardGenerator.sanitizeHttpUrl(trimmed);
-    return parsed?.hostname.endsWith(".wikimedia.org") ? parsed.href : undefined;
+    return InfoCardGenerator.sanitizeTrustedWikiUrl(trimmed, "wikimedia.org");
   }
 
+  /**
+   * Validates and upgrades Wikimedia/Wikipedia URLs strictly to `https:` on the expected domain.
+   */
+  static sanitizeTrustedWikiUrl(
+    raw: string | undefined,
+    requiredDomain: "wikimedia.org" | "wikipedia.org"
+  ): string | undefined {
+    const parsed = InfoCardGenerator.sanitizeHttpUrl(raw);
+    if (!parsed) return undefined;
+    const host = parsed.hostname.toLowerCase();
+    if (host !== requiredDomain && !host.endsWith(`.${requiredDomain}`)) {
+      return undefined;
+    }
+    parsed.protocol = "https:";
+    return parsed.href;
+  }
+
+  /**
+   * Sanitizes untrusted external URLs (e.g. OSM `website` tags):
+   * - Rejects non-HTTP(S) schemes (`javascript:`, `data:`, `mailto:`, `tel:`, `file:`) and protocol-relative `//` URLs.
+   * - Rejects embedded `username`/`password` (`https://trusted.org@evil.com` spoofing).
+   * - Rejects `localhost`, IP literals, and dotless hostnames.
+   */
   static sanitizeHttpUrl(raw?: string): URL | null {
     if (!raw) return null;
     const trimmed = raw.trim();
+    if (!trimmed || trimmed.startsWith("//")) return null;
+
+    if (
+      /^[a-z][a-z0-9+.-]*:/i.test(trimmed) &&
+      !/^https?:\/\//i.test(trimmed)
+    ) {
+      return null;
+    }
+
     const withProto = /^https?:\/\//i.test(trimmed)
       ? trimmed
       : `https://${trimmed}`;
     const url = URL.parse(withProto);
-    return url && (url.protocol === "https:" || url.protocol === "http:")
-      ? url
-      : null;
+    if (!url || (url.protocol !== "https:" && url.protocol !== "http:")) {
+      return null;
+    }
+    if (url.username || url.password) return null;
+
+    const host = url.hostname.toLowerCase();
+    if (
+      !host.includes(".") ||
+      host === "localhost" ||
+      host.endsWith(".localhost") ||
+      host.startsWith("[") ||
+      /^\d{1,3}(\.\d{1,3}){3}$/.test(host)
+    ) {
+      return null;
+    }
+
+    return url;
   }
 }
 

@@ -36,6 +36,12 @@
   let showSeparateAddress = $derived(
     Boolean(card.address && card.address !== card.title)
   );
+  let websiteLabel = $derived(
+    card.websiteUrl
+      ? (URL.parse(card.websiteUrl)?.hostname.replace(/^www\./i, "") ??
+          card.websiteUrl)
+      : undefined
+  );
 </script>
 
 <div class="w-68 max-w-[calc(100vw-3rem)] text-slate-900 text-xs flex flex-col gap-2 p-0.5">
@@ -124,9 +130,10 @@
             href={card.websiteUrl}
             target="_blank"
             rel="noopener noreferrer"
+            title={card.websiteUrl}
             class="truncate text-blue-600 hover:underline"
           >
-            {card.websiteUrl}
+            {websiteLabel}
           </a>
         </div>
       {/if}
@@ -154,7 +161,7 @@
         title={`Google Maps preview for ${card.title}`}
         src={card.googleMapsEmbedUrl}
         loading="lazy"
-        referrerpolicy="no-referrer-when-downgrade"
+        referrerpolicy="strict-origin-when-cross-origin"
         class="h-full w-full border-0"
       ></iframe>
     </div>

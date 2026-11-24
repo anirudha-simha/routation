@@ -52,6 +52,8 @@ export class OsrmSolver extends RouteSolver {
   readonly id = "osrm-trip" as const;
   readonly label = "OSRM Trip API (FOSSGIS Server TSP)";
 
+  private static readonly DEFAULT_ORIGIN = "https://routing.openstreetmap.de";
+
   override validate(input: SolverInput): void {
     super.validate(input);
     if (input.stops.length > 99) {
@@ -70,9 +72,8 @@ export class OsrmSolver extends RouteSolver {
 
     const baseUrl =
       input.solverOptions.osrmBaseUrl?.trim() ||
-      `https://routing.openstreetmap.de/routed-${profile}`;
+      `${OsrmSolver.DEFAULT_ORIGIN}/routed-${profile}`;
 
-    // Validate URL syntax and restrict protocol to http/https
     let parsedUrl: URL;
     try {
       parsedUrl = new URL(baseUrl);
@@ -80,13 +81,41 @@ export class OsrmSolver extends RouteSolver {
       throw new Error(`Invalid OSRM base URL: "${baseUrl}".`);
     }
 
-    if (parsedUrl.protocol !== "https:" && parsedUrl.protocol !== "http:") {
+    if (parsedUrl.username || parsedUrl.password) {
+      throw new Error("OSRM base URL must not contain embedded credentials.");
+    }
+
+    if (
+      baseUrl.includes("?") ||
+      baseUrl.includes("#") ||
+      parsedUrl.search ||
+      parsedUrl.hash
+    ) {
       throw new Error(
-        `Unsupported OSRM base URL protocol "${parsedUrl.protocol}". Only http: and https: are allowed.`
+        "OSRM base URL must not contain query parameters or fragments."
       );
     }
 
-    input.solverOptions.osrmBaseUrl = baseUrl;
+    const isLoopbackHttp =
+      parsedUrl.protocol === "http:" &&
+      (parsedUrl.hostname === "localhost" || parsedUrl.hostname === "127.0.0.1");
+
+    if (parsedUrl.protocol !== "https:" && !isLoopbackHttp) {
+      throw new Error(
+        `Unsupported OSRM base URL protocol "${parsedUrl.protocol}". Only https: (or http://localhost) is allowed.`
+      );
+    }
+
+    if (
+      !input.solverOptions.allowCustomOsrmOrigin &&
+      parsedUrl.origin !== OsrmSolver.DEFAULT_ORIGIN
+    ) {
+      throw new Error(
+        `Untrusted OSRM origin "${parsedUrl.origin}". Set allowCustomOsrmOrigin to use a self-hosted server.`
+      );
+    }
+
+    input.solverOptions.osrmBaseUrl = `${parsedUrl.origin}${parsedUrl.pathname.replace(/\/+$/, "")}`;
   }
 
   /**

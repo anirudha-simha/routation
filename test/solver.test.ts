@@ -333,6 +333,51 @@ describe("OsrmSolver (fixture tests)", () => {
       new OsrmSolver().solve({ home, stops: [s1], mode: "ROUND_TRIP_FASTEST" }, ctx)
     ).rejects.toThrow("cannot be reached by road");
   });
+
+  it("blocks untrusted OSRM origins, SSRF metadata IPs, query injection, and embedded credentials", () => {
+    const solver = new OsrmSolver();
+
+    expect(() =>
+      solver.validate({
+        home,
+        stops: [s1],
+        mode: "ROUND_TRIP_FASTEST",
+        solverOptions: { osrmBaseUrl: "https://attacker.example/collect?" },
+      })
+    ).toThrow("must not contain query parameters");
+
+    expect(() =>
+      solver.validate({
+        home,
+        stops: [s1],
+        mode: "ROUND_TRIP_FASTEST",
+        solverOptions: {
+          osrmBaseUrl: "https://user:pass@routing.openstreetmap.de/routed-car",
+        },
+      })
+    ).toThrow("embedded credentials");
+
+    expect(() =>
+      solver.validate({
+        home,
+        stops: [s1],
+        mode: "ROUND_TRIP_FASTEST",
+        solverOptions: { osrmBaseUrl: "https://evil.example/osrm" },
+      })
+    ).toThrow("Untrusted OSRM origin");
+
+    expect(() =>
+      solver.validate({
+        home,
+        stops: [s1],
+        mode: "ROUND_TRIP_FASTEST",
+        solverOptions: {
+          osrmBaseUrl: "http://169.254.169.254/latest/meta-data",
+          allowCustomOsrmOrigin: true,
+        },
+      })
+    ).toThrow("Only https: (or http://localhost)");
+  });
 });
 
 describe("NoSolver & pipeline bridge waypoints", () => {

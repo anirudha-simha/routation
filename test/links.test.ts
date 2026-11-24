@@ -3,9 +3,12 @@ import {
   chunkWithOverlap,
   createGeoLocation,
   createMemoryCache,
+  createSchemaSerializer,
   GeoLocation,
   GoogleMapsLinkBuilder,
   InfoCardGenerator,
+  parseStoredGeoLocations,
+  RouteModeSchema,
 } from "../src/core";
 
 function makeFakeStop(index: number, withStreet = true): GeoLocation {
@@ -403,11 +406,64 @@ describe("InfoCardGenerator", () => {
     expect(second.openingHours).toBe("10:00-17:00");
   });
 
-  it("rejects dangerous non-HTTP schemes in sanitizeHttpUrl", () => {
+  it("rejects dangerous non-HTTP schemes, userinfo phishing, localhost/IPs, and upgrades wikimedia http to https", () => {
     expect(InfoCardGenerator.sanitizeHttpUrl("javascript:alert(1)")).toBeNull();
+    expect(InfoCardGenerator.sanitizeHttpUrl("javascript:80/x")).toBeNull();
     expect(InfoCardGenerator.sanitizeHttpUrl("data:text/html,hi")).toBeNull();
+    expect(InfoCardGenerator.sanitizeHttpUrl("mailto:info@shop.com")).toBeNull();
+    expect(InfoCardGenerator.sanitizeHttpUrl("tel:+14155551234")).toBeNull();
+    expect(InfoCardGenerator.sanitizeHttpUrl("//evil.com/path")).toBeNull();
+    expect(
+      InfoCardGenerator.sanitizeHttpUrl("https://sfrecpark.org@evil.com/phish")
+    ).toBeNull();
+    expect(
+      InfoCardGenerator.sanitizeHttpUrl("http://127.0.0.1:8080/admin")
+    ).toBeNull();
+    expect(
+      InfoCardGenerator.sanitizeHttpUrl("http://localhost:3000")
+    ).toBeNull();
+    expect(
+      InfoCardGenerator.sanitizeTrustedWikiUrl(
+        "http://upload.wikimedia.org/wikipedia/commons/a.jpg",
+        "wikimedia.org"
+      )
+    ).toBe("https://upload.wikimedia.org/wikipedia/commons/a.jpg");
+    expect(
+      InfoCardGenerator.sanitizeTrustedWikiUrl(
+        "https://evil-wikimedia.org/a.jpg",
+        "wikimedia.org"
+      )
+    ).toBeUndefined();
     expect(
       InfoCardGenerator.sanitizeHttpUrl("https://anirudhasimha.com")?.hostname
     ).toBe("anirudhasimha.com");
+  });
+});
+
+describe("Storage boundary Zod deserializers", () => {
+  it("drops out-of-range/NaN coordinates, non-string fields, and deduplicates colliding IDs", () => {
+    const raw = JSON.stringify([
+      { id: "dup", name: "Valid A", lat: 37.79, lng: -122.39 },
+      { id: "dup", name: "Valid B", lat: 37.8, lng: -122.4 },
+      { id: "bad-lat", name: "Out of bounds", lat: 999, lng: -122.4 },
+      { id: "bad-type", name: 12345, lat: 37.79, lng: -122.39 },
+    ]);
+
+    const hydrated = parseStoredGeoLocations(raw);
+    expect(hydrated).toHaveLength(2);
+    expect(hydrated[0].id).toBe("dup");
+    expect(hydrated[1].id).toBe("dup-1");
+  });
+
+  it("falls back safely on invalid enum values or corrupted JSON", () => {
+    const modeSer = createSchemaSerializer(
+      RouteModeSchema,
+      "ROUND_TRIP_FASTEST"
+    );
+    expect(modeSer.deserialize('"INVALID_MODE"')).toBe("ROUND_TRIP_FASTEST");
+    expect(modeSer.deserialize("{broken-json")).toBe("ROUND_TRIP_FASTEST");
+    expect(modeSer.deserialize('"OPEN_END_START_AT_HOME"')).toBe(
+      "OPEN_END_START_AT_HOME"
+    );
   });
 });

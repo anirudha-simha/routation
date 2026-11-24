@@ -1,15 +1,19 @@
 import { PersistedState } from "runed";
 import {
   createGeoLocation,
+  createSchemaSerializer,
   defaultProviderContext,
   type GeoLocation,
-  type GeoLocationInit,
   type OptimizedRouteResult,
   type OsrmProfile,
+  OsrmProfileSchema,
+  parseStoredGeoLocations,
   type RouteMode,
+  RouteModeSchema,
   type RouteStatus,
   runRouteOptimizationPipeline,
   type SolverEngineId,
+  SolverEngineIdSchema,
 } from "../core";
 import defaults from "../resources/defaults.json";
 
@@ -18,36 +22,23 @@ const IMPLEMENTED_SOLVERS: ReadonlySet<SolverEngineId> = new Set([
   "no-solver",
 ]);
 
-/**
- * Custom `PersistedState` serializer for `GeoLocation[]` arrays in `localStorage`:
- * 1. Safely catches malformed/corrupted `localStorage` JSON without crashing startup.
- * 2. Filters out any invalid items missing finite numeric `lat` / `lng`.
- * 3. Strips cached `fullAddress` and re-hydrates each item via `createGeoLocation`
- *    so derived address fields stay up to date.
- */
+function isLocalStorageAvailable(): boolean {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return false;
+    const probeKey = "__routation_storage_probe__";
+    window.localStorage.setItem(probeKey, "1");
+    window.localStorage.removeItem(probeKey);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const storageConnected = isLocalStorageAvailable();
+
 const geoLocationArraySerializer = {
   serialize: (items: GeoLocation[]) => JSON.stringify(items),
-  deserialize: (raw: string): GeoLocation[] => {
-    try {
-      const parsed: unknown = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return [];
-      return parsed
-        .filter(
-          (item): item is Record<string, unknown> =>
-            typeof item === "object" &&
-            item !== null &&
-            typeof (item as Record<string, unknown>).lat === "number" &&
-            Number.isFinite((item as Record<string, unknown>).lat) &&
-            typeof (item as Record<string, unknown>).lng === "number" &&
-            Number.isFinite((item as Record<string, unknown>).lng)
-        )
-        .map(({ fullAddress: _ignored, ...rest }) =>
-          createGeoLocation(rest as unknown as GeoLocationInit)
-        );
-    } catch {
-      return [];
-    }
-  },
+  deserialize: (raw: string): GeoLocation[] => parseStoredGeoLocations(raw),
 };
 
 const DEFAULT_HOME = defaults.home.map((d) => createGeoLocation(d));
@@ -61,28 +52,40 @@ class RouteStore {
   readonly #homeLocations = new PersistedState<GeoLocation[]>(
     "route-optimizer-home",
     DEFAULT_HOME,
-    { serializer: geoLocationArraySerializer }
+    { connected: storageConnected, serializer: geoLocationArraySerializer }
   );
 
   readonly #stops = new PersistedState<GeoLocation[]>(
     "route-optimizer-stops",
     DEFAULT_STOPS,
-    { serializer: geoLocationArraySerializer }
+    { connected: storageConnected, serializer: geoLocationArraySerializer }
   );
 
   readonly #mode = new PersistedState<RouteMode>(
     "route-optimizer-mode",
-    "ROUND_TRIP_FASTEST"
+    "ROUND_TRIP_FASTEST",
+    {
+      connected: storageConnected,
+      serializer: createSchemaSerializer(RouteModeSchema, "ROUND_TRIP_FASTEST"),
+    }
   );
 
   readonly #solverEngine = new PersistedState<SolverEngineId>(
     "route-optimizer-solver",
-    "osrm-trip"
+    "osrm-trip",
+    {
+      connected: storageConnected,
+      serializer: createSchemaSerializer(SolverEngineIdSchema, "osrm-trip"),
+    }
   );
 
   readonly #osrmProfile = new PersistedState<OsrmProfile>(
     "route-optimizer-osrm-profile",
-    "car"
+    "car",
+    {
+      connected: storageConnected,
+      serializer: createSchemaSerializer(OsrmProfileSchema, "car"),
+    }
   );
 
   isOptimizing = $state(false);
@@ -188,6 +191,11 @@ class RouteStore {
       return;
     }
 
+    // Ensure no stop accidentally shares `home.id` (e.g. from tampered localStorage)
+    const safeStops = this.stops.map((s, idx) =>
+      s.id === home.id ? { ...s, id: `${s.id}-stop-${idx}` } : s
+    );
+
     const requestSignature = this.#inputSignature;
     this.isOptimizing = true;
     this.errorMessage = null;
@@ -197,7 +205,7 @@ class RouteStore {
       const res = await runRouteOptimizationPipeline(
         {
           home,
-          stops: this.stops,
+          stops: safeStops,
           config: {
             mode: this.mode,
             solverEngine: this.solverEngine,
