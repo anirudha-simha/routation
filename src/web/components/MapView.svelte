@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { LngLatBounds, setWorkerUrl, type Map } from "maplibre-gl";
+  import MapPinPlus from "@lucide/svelte/icons/map-pin-plus";
+  import { LngLatBounds, setWorkerUrl, type Map, type MapMouseEvent } from "maplibre-gl";
   import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
   import { watch } from "runed";
   import {
@@ -21,6 +22,25 @@
 
   let map = $state<Map | undefined>(undefined);
   let containerEl = $state<HTMLDivElement | null>(null);
+  let dropPinMode = $state(false);
+
+  function handleMapClick(e: MapMouseEvent) {
+    if (!dropPinMode) return;
+    dropPinMode = false;
+    void routeStore.addLocationFromCoords({
+      lat: e.lngLat.lat,
+      lng: e.lngLat.lng,
+    });
+  }
+
+  function handleMapContextMenu(e: MapMouseEvent) {
+    e.preventDefault();
+    dropPinMode = false;
+    void routeStore.addLocationFromCoords({
+      lat: e.lngLat.lat,
+      lng: e.lngLat.lng,
+    });
+  }
 
   let activeBridgeIds = $derived(
     routeStore.status === "optimized" && routeStore.result
@@ -129,9 +149,18 @@
   );
 </script>
 
+<svelte:window
+  onkeydown={(e) => {
+    if (e.key === "Escape" && dropPinMode) dropPinMode = false;
+  }}
+/>
+
 <div bind:this={containerEl} class="h-full w-full relative">
   <MapLibre
     bind:map
+    cursor={dropPinMode ? "crosshair" : undefined}
+    onclick={handleMapClick}
+    oncontextmenu={handleMapContextMenu}
     onload={() => {
       map?.resize();
       fitAllPins();
@@ -204,4 +233,27 @@
   </MapLibre>
 
   <MapStatusBadge />
+
+  <button
+    type="button"
+    onclick={() => (dropPinMode = !dropPinMode)}
+    disabled={routeStore.isDroppingPin}
+    title={dropPinMode
+      ? "Click anywhere on the map to add a stop (Esc to cancel)"
+      : "Click to place a stop (or Home) directly on the map"}
+    class="absolute top-12 left-3 z-10 inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium shadow-lg backdrop-blur cursor-pointer transition {dropPinMode
+      ? 'border-blue-400 bg-blue-600/95 text-white ring-2 ring-blue-400/40'
+      : 'border-slate-700/80 bg-slate-900/90 text-slate-200 hover:border-slate-500 hover:text-white'}"
+  >
+    <MapPinPlus class="h-3.5 w-3.5" />
+    <span>
+      {#if routeStore.isDroppingPin}
+        Adding pin...
+      {:else if dropPinMode}
+        Tap map to place • Cancel
+      {:else}
+        {routeStore.home ? "+ Drop Stop Pin" : "+ Drop Home Pin"}
+      {/if}
+    </span>
+  </button>
 </div>

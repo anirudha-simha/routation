@@ -4,10 +4,12 @@ import {
   createSchemaSerializer,
   defaultProviderContext,
   type GeoLocation,
+  type LatLng,
   type OptimizedRouteResult,
   type OsrmProfile,
   OsrmProfileSchema,
   parseStoredGeoLocations,
+  photonGeoCoder,
   type RouteMode,
   RouteModeSchema,
   type RouteStatus,
@@ -89,6 +91,7 @@ class RouteStore {
   );
 
   isOptimizing = $state(false);
+  isDroppingPin = $state(false);
   #solvedSignature = $state<string | null>(null);
 
   statusMessage = $state<string | null>(null);
@@ -179,6 +182,54 @@ class RouteStore {
       this.home?.id === id || this.stops.some((stop) => stop.id === id);
     if (exists) {
       this.selectedLocationId = id;
+    }
+  }
+
+  clearStops() {
+    if (this.selectedLocationId && this.selectedLocationId !== this.home?.id) {
+      this.selectedLocationId = null;
+    }
+    this.#stops.current = [];
+    this.result = null;
+    this.#solvedSignature = null;
+    this.errorMessage = null;
+    this.statusMessage = null;
+  }
+
+  resetDemo() {
+    this.selectedLocationId = null;
+    this.#homeLocations.current = defaults.home.map((d) => createGeoLocation(d));
+    this.#stops.current = defaults.stops.map((d) => createGeoLocation(d));
+    this.result = null;
+    this.#solvedSignature = null;
+    this.errorMessage = null;
+    this.statusMessage = null;
+  }
+
+  async addLocationFromCoords(coords: LatLng): Promise<void> {
+    if (this.isDroppingPin) return;
+    this.isDroppingPin = true;
+    this.errorMessage = null;
+
+    try {
+      const resolved = await photonGeoCoder.resolve(
+        `${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`
+      );
+      const entry: GeoLocation = {
+        ...resolved,
+        lat: coords.lat,
+        lng: coords.lng,
+        id: crypto.randomUUID(),
+      };
+
+      if (!this.home) {
+        this.#homeLocations.current = [entry];
+      } else {
+        this.#stops.current = [...this.stops, entry];
+      }
+      this.selectedLocationId = entry.id;
+    } finally {
+      this.isDroppingPin = false;
     }
   }
 

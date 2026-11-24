@@ -1,4 +1,6 @@
 <script lang="ts">
+  import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
+  import Trash2 from "@lucide/svelte/icons/trash-2";
   import type { RouteMode } from "../../core";
   import { routeStore } from "../state.svelte";
   import CollapsibleSection from "./CollapsibleSection.svelte";
@@ -56,13 +58,40 @@
   </div>
 
   <div>
-    <span class="block text-xs font-medium text-slate-300 mb-1">
-      Stops to Visit <span class="text-slate-500 font-normal">(drag ⋮⋮ to reorder • click to fly to pin)</span>
-    </span>
+    <div class="flex items-center justify-between gap-2 mb-1">
+      <span class="text-xs font-medium text-slate-300">
+        Stops to Visit <span class="text-slate-500 font-normal">(drag ⋮⋮ to reorder)</span>
+      </span>
+      <div class="flex items-center gap-1">
+        {#if routeStore.stops.length > 0}
+          <button
+            type="button"
+            onclick={() => routeStore.clearStops()}
+            title="Remove all stops"
+            class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-slate-400 hover:bg-slate-800 hover:text-rose-300 cursor-pointer transition"
+          >
+            <Trash2 class="h-3 w-3" />
+            <span>Clear</span>
+          </button>
+        {/if}
+        <button
+          type="button"
+          onclick={() => routeStore.resetDemo()}
+          title="Restore San Francisco demo Home & stops"
+          class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-slate-400 hover:bg-slate-800 hover:text-blue-300 cursor-pointer transition"
+        >
+          <RotateCcw class="h-3 w-3" />
+          <span>SF Demo</span>
+        </button>
+      </div>
+    </div>
     <LocationInput
       bind:values={routeStore.stops}
       placeholder="Add a stop (business, address, or lat, lng)..."
     />
+    <p class="mt-1 text-[11px] text-slate-400">
+      Tip: Right-click anywhere on the map (or use <span class="text-slate-300">+ Drop Pin</span>) to place a stop visually.
+    </p>
   </div>
 
   <div>
