@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Check from "@lucide/svelte/icons/check";
+  import Share2 from "@lucide/svelte/icons/share-2";
   import type { RouteStatus } from "../../core";
   import { routeStore } from "../state.svelte";
   import CollapsibleSection from "./CollapsibleSection.svelte";
@@ -9,6 +11,22 @@
   import StopInputPanel from "./StopInputPanel.svelte";
 
   let solverPanelOpen = $state(false);
+  let copiedShareLink = $state(false);
+  let copyTimer: ReturnType<typeof setTimeout> | undefined;
+
+  async function handleCopyShareLink() {
+    const url = routeStore.buildAndSyncShareUrl();
+    try {
+      await navigator.clipboard.writeText(url);
+      copiedShareLink = true;
+      clearTimeout(copyTimer);
+      copyTimer = setTimeout(() => {
+        copiedShareLink = false;
+      }, 2000);
+    } catch {
+      routeStore.statusMessage = "Share URL updated in your browser address bar.";
+    }
+  }
 
   const BUTTON_LABELS: Record<RouteStatus, string> = {
     unoptimized: "Optimize Route",
@@ -36,11 +54,30 @@
         >
       </p>
     </div>
-    <span
-      class="rounded-full px-2.5 py-1 text-xs font-medium border bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-    >
-      Keyless Mode
-    </span>
+    <div class="flex items-center gap-1.5 shrink-0">
+      <button
+        type="button"
+        onclick={handleCopyShareLink}
+        title="Copy a zero-backend shareable #hash URL for this route (safe for mobile handoff; never sent to servers)"
+        class="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium cursor-pointer transition {copiedShareLink
+          ? 'border-emerald-400/50 bg-emerald-500/20 text-emerald-300'
+          : 'border-slate-700 bg-slate-800/80 text-slate-200 hover:border-blue-500/60 hover:text-blue-300'}"
+      >
+        {#if copiedShareLink}
+          <Check class="h-3 w-3" />
+          <span>Copied!</span>
+        {:else}
+          <Share2 class="h-3 w-3" />
+          <span>Share</span>
+        {/if}
+      </button>
+
+      <span
+        class="hidden sm:inline-flex rounded-full px-2.5 py-1 text-xs font-medium border bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+      >
+        Keyless
+      </span>
+    </div>
   </header>
 
   <StopInputPanel />

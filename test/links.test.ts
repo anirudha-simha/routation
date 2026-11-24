@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildShareableRouteUrl,
   chunkWithOverlap,
   createGeoLocation,
   createMemoryCache,
   createSchemaSerializer,
+  decodeSharedRouteHash,
+  encodeSharedRouteHash,
   GeoLocation,
   GoogleMapsLinkBuilder,
   InfoCardGenerator,
@@ -465,5 +468,52 @@ describe("Storage boundary Zod deserializers", () => {
     expect(modeSer.deserialize('"OPEN_END_START_AT_HOME"')).toBe(
       "OPEN_END_START_AT_HOME"
     );
+  });
+});
+
+describe("URL #hash route sharing (lz-string + Zod)", () => {
+  it("round-trips Home, stops, mode, and profile into a compact #r= hash", () => {
+    const home = makeFakeStop(0);
+    const stops = [makeFakeStop(1), makeFakeStop(2, false)];
+
+    const shareUrl = buildShareableRouteUrl(
+      "https://routation.anirudhasimha.com/#old",
+      {
+        home,
+        stops,
+        mode: "ROUND_TRIP_END_CLOSEST_TO_HOME",
+        solverEngine: "osrm-trip",
+        osrmProfile: "bike",
+      }
+    );
+
+    expect(shareUrl.startsWith("https://routation.anirudhasimha.com/#r=")).toBe(
+      true
+    );
+    const hashPart = shareUrl.slice(shareUrl.indexOf("#"));
+    const decoded = decodeSharedRouteHash(hashPart);
+
+    expect(decoded).not.toBeNull();
+    expect(decoded?.home?.name).toBe("Stop 0");
+    expect(decoded?.stops).toHaveLength(2);
+    expect(decoded?.stops[0].street).toBe("Market St");
+    expect(decoded?.mode).toBe("ROUND_TRIP_END_CLOSEST_TO_HOME");
+    expect(decoded?.osrmProfile).toBe("bike");
+  });
+
+  it("rejects malformed, empty, or tampered #r= hashes safely", () => {
+    expect(decodeSharedRouteHash("")).toBeNull();
+    expect(decodeSharedRouteHash("#other=123")).toBeNull();
+    expect(decodeSharedRouteHash("#r=not-valid-lz-json")).toBeNull();
+
+    // Tampered out-of-bounds latitude
+    const badStop = { ...makeFakeStop(1), lat: 999 };
+    const badHash = encodeSharedRouteHash({
+      stops: [badStop],
+      mode: "ROUND_TRIP_FASTEST",
+      solverEngine: "osrm-trip",
+      osrmProfile: "car",
+    });
+    expect(decodeSharedRouteHash(badHash)).toBeNull();
   });
 });

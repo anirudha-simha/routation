@@ -1,7 +1,9 @@
 import { PersistedState } from "runed";
 import {
+  buildShareableRouteUrl,
   createGeoLocation,
   createSchemaSerializer,
+  decodeSharedRouteHash,
   defaultProviderContext,
   type GeoLocation,
   type LatLng,
@@ -14,6 +16,7 @@ import {
   RouteModeSchema,
   type RouteStatus,
   runRouteOptimizationPipeline,
+  type SharedRouteState,
   type SolverEngineId,
   SolverEngineIdSchema,
 } from "../core";
@@ -98,6 +101,52 @@ class RouteStore {
   errorMessage = $state<string | null>(null);
   result = $state<OptimizedRouteResult | null>(null);
   selectedLocationId = $state<string | null>(null);
+
+  constructor() {
+    if (typeof window !== "undefined") {
+      this.#tryHydrateFromUrlHash();
+      window.addEventListener("hashchange", () => {
+        this.#tryHydrateFromUrlHash();
+      });
+    }
+  }
+
+  #tryHydrateFromUrlHash(): void {
+    const shared = decodeSharedRouteHash(window.location.hash);
+    if (!shared) return;
+    this.applySharedRoute(shared);
+  }
+
+  applySharedRoute(shared: SharedRouteState): void {
+    this.selectedLocationId = null;
+    this.#homeLocations.current = shared.home ? [shared.home] : [];
+    this.#stops.current = shared.stops;
+    this.#mode.current = shared.mode;
+    if (IMPLEMENTED_SOLVERS.has(shared.solverEngine)) {
+      this.#solverEngine.current = shared.solverEngine;
+    }
+    this.#osrmProfile.current = shared.osrmProfile;
+    this.result = null;
+    this.#solvedSignature = null;
+    this.errorMessage = null;
+    this.statusMessage = `Loaded shared route (${shared.stops.length} ${shared.stops.length === 1 ? "stop" : "stops"}). Click Optimize Route to calculate roads.`;
+  }
+
+  buildAndSyncShareUrl(): string {
+    const baseHref =
+      typeof window !== "undefined" ? window.location.href : "https://routation.anirudhasimha.com/";
+    const url = buildShareableRouteUrl(baseHref, {
+      home: this.home,
+      stops: this.stops,
+      mode: this.mode,
+      solverEngine: this.solverEngine,
+      osrmProfile: this.osrmProfile,
+    });
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", url);
+    }
+    return url;
+  }
 
   readonly #inputSignature = $derived(
     JSON.stringify([
@@ -194,6 +243,7 @@ class RouteStore {
     this.#solvedSignature = null;
     this.errorMessage = null;
     this.statusMessage = null;
+    this.#clearUrlHash();
   }
 
   resetDemo() {
@@ -204,6 +254,17 @@ class RouteStore {
     this.#solvedSignature = null;
     this.errorMessage = null;
     this.statusMessage = null;
+    this.#clearUrlHash();
+  }
+
+  #clearUrlHash() {
+    if (typeof window !== "undefined" && window.location.hash) {
+      window.history.replaceState(
+        null,
+        "",
+        window.location.pathname + window.location.search
+      );
+    }
   }
 
   async addLocationFromCoords(coords: LatLng): Promise<void> {

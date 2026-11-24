@@ -8,4 +8,5 @@ export * from "./solvers/solver";
 export * from "./solvers/no-solver";
 export * from "./solvers/osrm";
 export * from "./google-maps-link";
+export * from "./share";
 export * from "./pipeline";
