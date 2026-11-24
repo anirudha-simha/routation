@@ -8,5 +8,12 @@ export default defineConfig({
   plugins: [svelte(), tailwindcss()],
   build: {
     outDir: "dist",
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          maplibre: ["maplibre-gl"],
+        },
+      },
+    },
   },
 });

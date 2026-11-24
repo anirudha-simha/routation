@@ -1,17 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  buildBridgedGoogleMapsLinks,
   chunkWithOverlap,
+  createGeoLocation,
+  createMemoryCache,
   GeoLocation,
   GoogleMapsLinkBuilder,
   InfoCardGenerator,
 } from "../src/core";
 
-function makeFakeStop(index: number): GeoLocation {
-  return new GeoLocation({
+function makeFakeStop(index: number, withStreet = true): GeoLocation {
+  return createGeoLocation({
     id: `stop-${index}`,
     name: `Stop ${index}`,
-    address: `${index} Market St, San Francisco, CA`,
+    building: withStreet ? String(index) : undefined,
+    street: withStreet ? "Market St" : undefined,
+    city: "San Francisco",
+    state: "CA",
     lat: 37.77 + index * 0.01,
     lng: -122.41 - index * 0.01,
   });
@@ -42,19 +46,30 @@ describe("chunkWithOverlap", () => {
   });
 });
 
-describe("buildBridgedGoogleMapsLinks", () => {
-  it("builds chained 10-point Google Maps api=1 URLs with bridge stop IDs", () => {
+describe("GoogleMapsLinkBuilder.buildDirectionsLinks", () => {
+  it("builds chained 9-stop Google Maps api=1 URLs with bridge stop IDs", () => {
     const stops = Array.from({ length: 15 }, (_, i) => makeFakeStop(i + 1));
-    const links = buildBridgedGoogleMapsLinks(stops, 10);
+    const links = GoogleMapsLinkBuilder.buildDirectionsLinks(stops, "car", 9);
 
     expect(links).toHaveLength(2);
-    expect(links[0].stopCount).toBe(10);
+    expect(links[0].stopCount).toBe(9);
     expect(links[0].bridgeStopId).toBeUndefined();
-    expect(links[1].stopCount).toBe(6); // stops 10..15
-    expect(links[1].bridgeStopId).toBe("stop-10");
+    expect(links[1].stopCount).toBe(7); // stops 9..15
+    expect(links[1].bridgeStopId).toBe("stop-9");
     expect(links[0].googleMapsUrl).toContain(
       "https://www.google.com/maps/dir/?api=1"
     );
+    expect(links[0].googleMapsUrl).toContain("travelmode=driving");
+  });
+
+  it("falls back to exact coordinates when a stop lacks a street-level address", () => {
+    const parkA = makeFakeStop(1, false);
+    const parkB = makeFakeStop(2, false);
+    const links = GoogleMapsLinkBuilder.buildDirectionsLinks([parkA, parkB], "foot");
+
+    expect(links).toHaveLength(1);
+    expect(links[0].googleMapsUrl).toContain("origin=37.780000%2C-122.420000");
+    expect(links[0].googleMapsUrl).toContain("travelmode=walking");
   });
 });
 
@@ -70,6 +85,31 @@ describe("GoogleMapsLinkBuilder place search & embed URLs", () => {
     expect(embedUrl).toContain("https://maps.google.com/maps?");
     expect(embedUrl).toContain("output=embed");
     expect(embedUrl).toContain("q=Stop+1%2C+1+Market+St%2C+San+Francisco%2C+CA");
+  });
+});
+
+describe("createMemoryCache singleflight & LRU", () => {
+  it("coalesces concurrent getOrLoad calls and evicts oldest entries past maxEntries", async () => {
+    const cache = createMemoryCache({ maxEntries: 2, ttlMs: 60_000 });
+    let calls = 0;
+    const loader = async () => {
+      calls++;
+      await new Promise((r) => setTimeout(r, 10));
+      return "value-a";
+    };
+
+    const [r1, r2] = await Promise.all([
+      cache.getOrLoad("a", loader),
+      cache.getOrLoad("a", loader),
+    ]);
+    expect(r1).toBe("value-a");
+    expect(r2).toBe("value-a");
+    expect(calls).toBe(1);
+
+    await cache.set("b", "value-b");
+    await cache.set("c", "value-c"); // evicts "a"
+    expect(await cache.get("a")).toBeUndefined();
+    expect(await cache.get("b")).toBe("value-b");
   });
 });
 
@@ -119,7 +159,7 @@ describe("InfoCardGenerator", () => {
     }) as unknown as typeof fetch;
 
     const generator = new InfoCardGenerator(fakeFetch);
-    const stop = new GeoLocation({
+    const stop = createGeoLocation({
       name: "Painted Ladies (Alamo Square)",
       street: "Steiner St & Hayes St",
       city: "San Francisco",
@@ -168,7 +208,7 @@ describe("InfoCardGenerator", () => {
     });
 
     const generator = new InfoCardGenerator(spy as unknown as typeof fetch);
-    const stop = new GeoLocation({
+    const stop = createGeoLocation({
       name: "Tartine Bakery",
       street: "600 Guerrero St",
       city: "San Francisco",
@@ -184,7 +224,6 @@ describe("InfoCardGenerator", () => {
     expect(card.cuisine).toBe("Bakery • Coffee Shop");
     expect(card.wheelchair).toBe("Wheelchair accessible");
     expect(card.summary).toBe("Famous artisan sourdough bakery in the Mission.");
-    // Must not call public Overpass endpoints
     expect(
       spy.mock.calls.some(([u]) => String(u).includes("overpass"))
     ).toBe(false);
@@ -225,7 +264,7 @@ describe("InfoCardGenerator", () => {
     }) as unknown as typeof fetch;
 
     const generator = new InfoCardGenerator(fakeFetch);
-    const stop = new GeoLocation({
+    const stop = createGeoLocation({
       name: "Chase Center",
       street: "1 Warriors Way",
       city: "San Francisco",
@@ -277,7 +316,6 @@ describe("InfoCardGenerator", () => {
           { status: 200 }
         );
       }
-      // Proximity geosearch returned unrelated nearby pages
       return new Response(
         JSON.stringify({
           query: {
@@ -295,7 +333,7 @@ describe("InfoCardGenerator", () => {
     }) as unknown as typeof fetch;
 
     const generator = new InfoCardGenerator(fakeFetch);
-    const stop = new GeoLocation({
+    const stop = createGeoLocation({
       name: "Fisherman's Wharf (Pier 39)",
       street: "The Embarcadero & Beach St",
       city: "San Francisco",

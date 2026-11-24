@@ -1,4 +1,8 @@
-import { createDefaultContext, type ProviderContext } from "../context";
+import {
+  createDefaultContext,
+  defaultProviderContext,
+  type ProviderContext,
+} from "../context";
 import { GoogleMapsLinkBuilder } from "../google-maps-link";
 import { GeoLocation } from "../types";
 
@@ -57,7 +61,7 @@ export class InfoCardGenerator {
 
   private readonly ctx: ProviderContext;
 
-  constructor(ctxOrFetch?: ProviderContext | typeof fetch) {
+  constructor(ctxOrFetch: ProviderContext | typeof fetch = defaultProviderContext) {
     this.ctx =
       typeof ctxOrFetch === "function"
         ? createDefaultContext({
@@ -65,7 +69,7 @@ export class InfoCardGenerator {
             nominatimLimiter: { schedule: (fn) => fn() },
             defaultLimiter: { schedule: (fn) => fn() },
           })
-        : (ctxOrFetch ?? createDefaultContext());
+        : ctxOrFetch;
   }
 
   /**
@@ -89,62 +93,60 @@ export class InfoCardGenerator {
    */
   async generate(location: GeoLocation): Promise<PlaceInfoCard> {
     const cacheKey = `infocard:${location.lat.toFixed(5)},${location.lng.toFixed(5)}:${location.name}`;
-    const cached = await this.ctx.cache.get<PlaceInfoCard>(cacheKey);
-    if (cached) return cached;
+    return this.ctx.cache.getOrLoad(cacheKey, async () => {
+      const card = this.getBaseCard(location);
 
-    const card = this.getBaseCard(location);
+      // Run Nominatim and Wikipedia proximity lookup in parallel so Wikipedia never waits on OSM
+      const [nominatim, geoWiki] = await Promise.all([
+        this.fetchNominatimDetails(location),
+        this.fetchWikipedia(location),
+      ]);
 
-    // Run Nominatim and Wikipedia proximity lookup in parallel so Wikipedia never waits on OSM
-    const [nominatim, geoWiki] = await Promise.all([
-      this.fetchNominatimDetails(location),
-      this.fetchWikipedia(location),
-    ]);
+      const tags: OsmTags = nominatim?.extratags ?? {};
 
-    const tags: OsmTags = nominatim?.extratags ?? {};
-
-    card.openingHours = tags.opening_hours?.trim() || undefined;
-    card.phone = (tags.phone ?? tags["contact:phone"])?.trim() || undefined;
-    card.websiteUrl = InfoCardGenerator.sanitizeHttpUrl(
-      tags.website ?? tags["contact:website"]
-    )?.href;
-    card.cuisine = InfoCardGenerator.formatCuisine(tags.cuisine);
-    card.wheelchair = InfoCardGenerator.formatWheelchair(tags.wheelchair);
-
-    // Prefer OSM's explicit English `wikipedia` tag over proximity geosearch when they disagree,
-    // reusing `geoWiki` with zero extra network calls when it already matched that exact article.
-    const osmWikiTitle = InfoCardGenerator.extractEnglishWikiTitle(
-      tags.wikipedia
-    );
-    let wiki = geoWiki;
-    if (
-      osmWikiTitle &&
-      geoWiki?.title?.toLowerCase() !== osmWikiTitle.toLowerCase()
-    ) {
-      wiki = (await this.fetchWikipedia(location, osmWikiTitle)) ?? geoWiki;
-    }
-
-    if (wiki) {
-      card.subtitle = wiki.description?.trim() || undefined;
-      card.summary = wiki.extract?.trim() || undefined;
-      card.thumbnailUrl = InfoCardGenerator.sanitizeHttpUrl(
-        wiki.thumbnail?.source
+      card.openingHours = tags.opening_hours?.trim() || undefined;
+      card.phone = (tags.phone ?? tags["contact:phone"])?.trim() || undefined;
+      card.websiteUrl = InfoCardGenerator.sanitizeHttpUrl(
+        tags.website ?? tags["contact:website"]
       )?.href;
-      card.wikipediaUrl = InfoCardGenerator.sanitizeHttpUrl(wiki.fullurl)?.href;
-    }
+      card.cuisine = InfoCardGenerator.formatCuisine(tags.cuisine);
+      card.wheelchair = InfoCardGenerator.formatWheelchair(tags.wheelchair);
 
-    // Fall back to OSM's own `description` tag if Wikipedia had no summary (common for local businesses)
-    if (!card.summary && tags.description?.trim()) {
-      card.summary = tags.description.trim();
-    }
-
-    if (!card.thumbnailUrl) {
-      card.thumbnailUrl = InfoCardGenerator.resolveCommonsThumbnail(
-        tags.image ?? tags.wikimedia_commons
+      // Prefer OSM's explicit English `wikipedia` tag over proximity geosearch when they disagree,
+      // reusing `geoWiki` with zero extra network calls when it already matched that exact article.
+      const osmWikiTitle = InfoCardGenerator.extractEnglishWikiTitle(
+        tags.wikipedia
       );
-    }
+      let wiki = geoWiki;
+      if (
+        osmWikiTitle &&
+        geoWiki?.title?.toLowerCase() !== osmWikiTitle.toLowerCase()
+      ) {
+        wiki = (await this.fetchWikipedia(location, osmWikiTitle)) ?? geoWiki;
+      }
 
-    await this.ctx.cache.set(cacheKey, card);
-    return card;
+      if (wiki) {
+        card.subtitle = wiki.description?.trim() || undefined;
+        card.summary = wiki.extract?.trim() || undefined;
+        card.thumbnailUrl = InfoCardGenerator.sanitizeHttpUrl(
+          wiki.thumbnail?.source
+        )?.href;
+        card.wikipediaUrl = InfoCardGenerator.sanitizeHttpUrl(wiki.fullurl)?.href;
+      }
+
+      // Fall back to OSM's own `description` tag if Wikipedia had no summary (common for local businesses)
+      if (!card.summary && tags.description?.trim()) {
+        card.summary = tags.description.trim();
+      }
+
+      if (!card.thumbnailUrl) {
+        card.thumbnailUrl = InfoCardGenerator.resolveCommonsThumbnail(
+          tags.image ?? tags.wikimedia_commons
+        );
+      }
+
+      return card;
+    });
   }
 
   private async fetchNominatimDetails(

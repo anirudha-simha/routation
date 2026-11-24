@@ -3,13 +3,11 @@
   import { resource } from "runed";
   import {
     formatMiles,
-    GeoLocation,
+    type GeoLocation,
     haversineMeters,
     type LatLng,
-    PhotonGeoCoder,
+    photonGeoCoder,
   } from "../../core";
-
-  const photon = new PhotonGeoCoder();
 
   interface Props {
     placeholder?: string;
@@ -29,8 +27,8 @@
 
   const search = resource(
     () => ({ query: inputText.trim(), bias }),
-    async ({ query, bias: b }) =>
-      query.length >= 3 ? photon.lookup(query, b) : [],
+    async ({ query, bias: b }, _prev, { signal }) =>
+      query.length >= 3 ? photonGeoCoder.lookup(query, b, signal) : [],
     { debounce: 300, initialValue: [] as GeoLocation[] }
   );
 

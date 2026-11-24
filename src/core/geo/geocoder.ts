@@ -1,4 +1,4 @@
-import { GeoLocation, LatLng } from "../types";
+import { createGeoLocation, GeoLocation, LatLng } from "../types";
 
 const COORDINATE_REGEX = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/;
 
@@ -7,32 +7,47 @@ export abstract class AddressLookup {
    * Subclasses implement provider-specific address search (e.g. Photon `/api/?q=...`)
    * and return matching GeoLocations.
    */
-  abstract addressLookup(address: string, bias?: LatLng): Promise<GeoLocation[]>;
+  abstract addressLookup(
+    address: string,
+    bias?: LatLng,
+    signal?: AbortSignal
+  ): Promise<GeoLocation[]>;
 
   /**
    * Subclasses implement provider-specific reverse geocoding (e.g. Photon `/reverse?lat=...&lon=...`)
    * and return matching GeoLocations.
    */
-  abstract latLongLookup(coords: LatLng): Promise<GeoLocation[]>;
+  abstract latLongLookup(
+    coords: LatLng,
+    signal?: AbortSignal
+  ): Promise<GeoLocation[]>;
 
   /**
    * Automatically routes a raw user string to `latLongLookup` if it's a `"lat, lng"` pair,
    * or `addressLookup` if it's a place/address query.
    */
-  async lookup(input: string, bias?: LatLng): Promise<GeoLocation[]> {
+  async lookup(
+    input: string,
+    bias?: LatLng,
+    signal?: AbortSignal
+  ): Promise<GeoLocation[]> {
     const trimmed = input.trim();
     if (!trimmed) return [];
 
     const coords = this.parseCoordinateInput(trimmed);
     return coords
-      ? this.latLongLookup(coords)
-      : this.addressLookup(trimmed, bias);
+      ? this.latLongLookup(coords, signal)
+      : this.addressLookup(trimmed, bias, signal);
   }
 
   /**
    * Resolves a query string into the single best matching GeoLocation.
    */
-  async resolve(input: string, bias?: LatLng): Promise<GeoLocation> {
+  async resolve(
+    input: string,
+    bias?: LatLng,
+    signal?: AbortSignal
+  ): Promise<GeoLocation> {
     const trimmed = input.trim();
     if (!trimmed) {
       throw new Error("Location query cannot be empty.");
@@ -40,12 +55,12 @@ export abstract class AddressLookup {
 
     const coords = this.parseCoordinateInput(trimmed);
     if (coords) {
-      const results = await this.latLongLookup(coords);
+      const results = await this.latLongLookup(coords, signal);
       if (results.length > 0) return results[0];
-      return new GeoLocation({ lat: coords.lat, lng: coords.lng });
+      return createGeoLocation({ lat: coords.lat, lng: coords.lng });
     }
 
-    const results = await this.lookup(trimmed, bias);
+    const results = await this.lookup(trimmed, bias, signal);
     if (results.length === 0) {
       throw new Error(`Could not resolve location: "${trimmed}"`);
     }
@@ -62,7 +77,7 @@ export abstract class AddressLookup {
     if (!match) return null;
     const lat = Number.parseFloat(match[1]);
     const lng = Number.parseFloat(match[2]);
-    if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
     if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
     return { lat, lng };
   }

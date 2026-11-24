@@ -1,12 +1,13 @@
-import { FiniteStateMachine, PersistedState } from "runed";
+import { PersistedState } from "runed";
 import {
   type ByokProviderId,
-  createDefaultContext,
-  GeoLocation,
+  createGeoLocation,
+  defaultProviderContext,
+  type GeoLocation,
+  type GeoLocationInit,
   type LocalMatrixSource,
   type OptimizedRouteResult,
   type OsrmProfile,
-  type RouteEvent,
   type RouteMode,
   type RouteStatus,
   runRouteOptimizationPipeline,
@@ -18,7 +19,7 @@ import defaults from "../resources/defaults.json";
  * Custom `PersistedState` serializer for `GeoLocation[]` arrays in `localStorage`:
  * 1. Safely catches malformed/corrupted `localStorage` JSON without crashing startup.
  * 2. Filters out any invalid items missing numeric `lat` / `lng`.
- * 3. Strips cached `fullAddress` and re-hydrates each item via `new GeoLocation(rest)`
+ * 3. Strips cached `fullAddress` and re-hydrates each item via `createGeoLocation`
  *    so derived address fields stay up to date.
  */
 const geoLocationArraySerializer = {
@@ -35,11 +36,8 @@ const geoLocationArraySerializer = {
             typeof (item as Record<string, unknown>).lat === "number" &&
             typeof (item as Record<string, unknown>).lng === "number"
         )
-        .map(
-          ({ fullAddress: _ignored, ...rest }) =>
-            new GeoLocation(
-              rest as unknown as ConstructorParameters<typeof GeoLocation>[0]
-            )
+        .map(({ fullAddress: _ignored, ...rest }) =>
+          createGeoLocation(rest as unknown as GeoLocationInit)
         );
     } catch {
       return [];
@@ -47,78 +45,80 @@ const geoLocationArraySerializer = {
   },
 };
 
-const DEFAULT_HOME = defaults.home.map((d) => new GeoLocation(d));
-const DEFAULT_STOPS = defaults.stops.map((d) => new GeoLocation(d));
+const DEFAULT_HOME = defaults.home.map((d) => createGeoLocation(d));
+const DEFAULT_STOPS = defaults.stops.map((d) => createGeoLocation(d));
 
 /**
  * Reactive application state & controller singleton (`.svelte.ts` enables Svelte 5 runes inside a class).
+ * Staleness is derived declaratively (ETag-style) by comparing `#inputSignature` against `#solvedSignature`.
  */
 class RouteStore {
-  #homeLocations = new PersistedState<GeoLocation[]>(
+  readonly #homeLocations = new PersistedState<GeoLocation[]>(
     "route-optimizer-home",
     DEFAULT_HOME,
     { serializer: geoLocationArraySerializer }
   );
 
-  #stops = new PersistedState<GeoLocation[]>(
+  readonly #stops = new PersistedState<GeoLocation[]>(
     "route-optimizer-stops",
     DEFAULT_STOPS,
     { serializer: geoLocationArraySerializer }
   );
 
-  #mode = new PersistedState<RouteMode>(
+  readonly #mode = new PersistedState<RouteMode>(
     "route-optimizer-mode",
     "ROUND_TRIP_FASTEST"
   );
 
-  #solverEngine = new PersistedState<SolverEngineId>(
+  readonly #solverEngine = new PersistedState<SolverEngineId>(
     "route-optimizer-solver",
     "osrm-trip"
   );
 
-  #osrmProfile = new PersistedState<OsrmProfile>(
+  readonly #osrmProfile = new PersistedState<OsrmProfile>(
     "route-optimizer-osrm-profile",
     "car"
   );
 
-  readonly #providerCtx = createDefaultContext();
-
   localMatrixSource = $state<LocalMatrixSource>("osrm-table");
   byokProvider = $state<ByokProviderId>("openrouteservice");
   apiKey = $state("");
+
+  isOptimizing = $state(false);
+  #solvedSignature = $state<string | null>(null);
 
   statusMessage = $state<string | null>(null);
   errorMessage = $state<string | null>(null);
   result = $state<OptimizedRouteResult | null>(null);
   selectedLocationId = $state<string | null>(null);
 
-  fsm = new FiniteStateMachine<RouteStatus, RouteEvent>("unoptimized", {
-    unoptimized: {
-      OPTIMIZE_START: "optimizing",
-    },
-    optimizing: {
-      OPTIMIZE_SUCCESS: "optimized",
-      OPTIMIZE_ERROR: () => (this.result ? "stale" : "unoptimized"),
-    },
-    optimized: {
-      INPUTS_CHANGED: "stale",
-      OPTIMIZE_START: "optimizing",
-    },
-    stale: {
-      OPTIMIZE_START: "optimizing",
-    },
-  });
+  readonly #inputSignature = $derived(
+    JSON.stringify([
+      this.home?.id,
+      this.stops.map((s) => s.id),
+      this.mode,
+      this.solverEngine,
+      this.osrmProfile,
+      this.localMatrixSource,
+      this.byokProvider,
+    ])
+  );
 
-  get status(): RouteStatus {
-    return this.fsm.current;
-  }
+  readonly status = $derived<RouteStatus>(
+    this.isOptimizing
+      ? "optimizing"
+      : !this.result
+        ? "unoptimized"
+        : this.#solvedSignature === this.#inputSignature
+          ? "optimized"
+          : "stale"
+  );
 
   get homeLocations(): GeoLocation[] {
     return this.#homeLocations.current;
   }
   set homeLocations(value: GeoLocation[]) {
     this.#homeLocations.current = value;
-    this.fsm.send("INPUTS_CHANGED");
   }
 
   get stops(): GeoLocation[] {
@@ -126,7 +126,6 @@ class RouteStore {
   }
   set stops(value: GeoLocation[]) {
     this.#stops.current = value;
-    this.fsm.send("INPUTS_CHANGED");
   }
 
   get mode(): RouteMode {
@@ -134,7 +133,6 @@ class RouteStore {
   }
   set mode(value: RouteMode) {
     this.#mode.current = value;
-    this.fsm.send("INPUTS_CHANGED");
   }
 
   get solverEngine(): SolverEngineId {
@@ -142,7 +140,6 @@ class RouteStore {
   }
   set solverEngine(value: SolverEngineId) {
     this.#solverEngine.current = value;
-    this.fsm.send("INPUTS_CHANGED");
   }
 
   get osrmProfile(): OsrmProfile {
@@ -150,7 +147,6 @@ class RouteStore {
   }
   set osrmProfile(value: OsrmProfile) {
     this.#osrmProfile.current = value;
-    this.fsm.send("INPUTS_CHANGED");
   }
 
   get home(): GeoLocation | undefined {
@@ -174,7 +170,7 @@ class RouteStore {
   }
 
   async optimize(): Promise<void> {
-    if (this.status === "optimizing") return;
+    if (this.isOptimizing) return;
 
     const home = this.home;
     if (!home || this.stops.length === 0) {
@@ -182,7 +178,7 @@ class RouteStore {
       return;
     }
 
-    this.fsm.send("OPTIMIZE_START");
+    this.isOptimizing = true;
     this.errorMessage = null;
     this.statusMessage = `Running ${this.solverEngine} solver...`;
 
@@ -202,7 +198,7 @@ class RouteStore {
             },
           },
         },
-        this.#providerCtx,
+        defaultProviderContext,
         (progress) => {
           this.statusMessage = progress.message;
         }
@@ -214,13 +210,14 @@ class RouteStore {
       if (orderedNonHomeStops.length > 0) {
         this.#stops.current = orderedNonHomeStops;
       }
-      this.fsm.send("OPTIMIZE_SUCCESS");
+      this.#solvedSignature = this.#inputSignature;
       this.statusMessage = null;
     } catch (err) {
-      this.fsm.send("OPTIMIZE_ERROR");
       this.errorMessage =
         err instanceof Error ? err.message : "Route optimization failed";
       this.statusMessage = null;
+    } finally {
+      this.isOptimizing = false;
     }
   }
 }

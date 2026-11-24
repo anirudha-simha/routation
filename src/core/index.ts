@@ -7,6 +7,5 @@ export * from "./geo/info-card-generator";
 export * from "./solvers/solver";
 export * from "./solvers/no-solver";
 export * from "./solvers/osrm";
-export * from "./links";
 export * from "./google-maps-link";
 export * from "./pipeline";

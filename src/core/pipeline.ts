@@ -1,4 +1,4 @@
-import { createDefaultContext, ProviderContext } from "./context";
+import { defaultProviderContext, ProviderContext } from "./context";
 import { GoogleMapsLinkBuilder } from "./google-maps-link";
 import { NoSolver } from "./solvers/no-solver";
 import { OsrmSolver } from "./solvers/osrm";
@@ -39,7 +39,8 @@ function getSolver(engineId: SolverEngineId): RouteSolver {
  */
 export function buildOrderedLegs(
   home: GeoLocation,
-  solverOutput: SolverOutput
+  solverOutput: SolverOutput,
+  bridgeStopIds: ReadonlySet<string> = new Set()
 ): OrderedStopLeg[] {
   let cumulativeDurationSeconds = 0;
   let cumulativeDistanceMeters = 0;
@@ -60,6 +61,7 @@ export function buildOrderedLegs(
       sequenceNumber,
       stop,
       isHome,
+      isBridgeWaypoint: bridgeStopIds.has(stop.id) || undefined,
       legDurationSeconds,
       legDistanceMeters,
       cumulativeDurationSeconds,
@@ -73,11 +75,11 @@ export function buildOrderedLegs(
  * 1. Resolves the requested `RouteSolver`.
  * 2. Validates inputs (base checks + solver-specific checks).
  * 3. Runs `solver.solve(...)`.
- * 4. Maps ordered stops + leg metrics via `buildOrderedLegs(...)`.
+ * 4. Builds bridged Google Maps links and maps cumulative `OrderedStopLeg`s.
  */
 export async function runRouteOptimizationPipeline(
   input: PipelineInput,
-  ctx: ProviderContext = createDefaultContext(),
+  ctx: ProviderContext = defaultProviderContext,
   onProgress?: PipelineProgressCallback
 ): Promise<OptimizedRouteResult> {
   const { home, stops, config } = input;
@@ -91,7 +93,6 @@ export async function runRouteOptimizationPipeline(
     solverOptions,
   };
 
-  // Run base + solver-specific validation immediately before executing
   solver.validate(solverInput);
 
   onProgress?.({
@@ -100,14 +101,20 @@ export async function runRouteOptimizationPipeline(
   });
 
   const solverOutput = await solver.solve(solverInput, ctx);
-  const orderedLegs = buildOrderedLegs(home, solverOutput);
-  const lastLeg = orderedLegs[orderedLegs.length - 1];
-
   const travelMode = solverOptions?.osrmProfile ?? "car";
-  const googleMapsLinks = new GoogleMapsLinkBuilder().buildDirectionsLink(
-    travelMode,
-    solverOutput.orderedStops
+  const googleMapsLinks = GoogleMapsLinkBuilder.buildDirectionsLinks(
+    solverOutput.orderedStops,
+    travelMode
   );
+
+  const bridgeStopIds = new Set(
+    googleMapsLinks
+      .map((l) => l.bridgeStopId)
+      .filter((id): id is string => Boolean(id))
+  );
+
+  const orderedLegs = buildOrderedLegs(home, solverOutput, bridgeStopIds);
+  const lastLeg = orderedLegs[orderedLegs.length - 1];
 
   onProgress?.({
     phase: "done",

@@ -1,12 +1,17 @@
 /**
- * Isomorphic dependency injection context so `@route-optimizer/core` stays free
- * of direct browser (`IndexedDB`/`localStorage`) or Node (`fs`) globals, and
- * unit tests can inject fake `fetch`, instant timers, and in-memory caches.
+ * Isomorphic dependency injection context so `src/core` stays free of direct
+ * browser (`IndexedDB`/`localStorage`) or Node (`fs`) globals, and unit tests
+ * can inject fake `fetch`, instant timers, and isolated caches.
  */
 
 export interface KeyValueCache {
   get<T = unknown>(key: string): Promise<T | undefined>;
   set<T = unknown>(key: string, value: T): Promise<void>;
+  /**
+   * Read-through helper with singleflight deduplication: concurrent callers
+   * requesting the same `key` share a single in-flight `loader()` promise.
+   */
+  getOrLoad<T>(key: string, loader: () => Promise<T>): Promise<T>;
 }
 
 export interface RateLimiter {
@@ -21,32 +26,79 @@ export interface ProviderContext {
   cache: KeyValueCache;
   /** Rate limiter for Nominatim (strictly <= 1 req/sec per OSMF policy). */
   nominatimLimiter: RateLimiter;
-  /** Rate limiter for Photon / OSRM demo servers. */
+  /** Rate limiter for Photon / OSRM community servers. */
   defaultLimiter: RateLimiter;
-  /** Optional custom User-Agent header (required by Nominatim when running in Node). */
+  /** Optional custom User-Agent header (required by Nominatim/OSM when running in Node). */
   userAgent?: string;
 }
 
+export interface MemoryCacheOptions {
+  maxEntries?: number;
+  ttlMs?: number;
+}
+
 /**
- * Simple in-memory cache implementation (works in browser, Node, and tests).
+ * Bounded LRU + TTL in-memory cache with singleflight request coalescing.
  */
-export function createMemoryCache(): KeyValueCache {
-  const store = new Map<string, unknown>();
-  return {
-    async get<T = unknown>(key: string): Promise<T | undefined> {
-      return store.get(key) as T | undefined;
-    },
-    async set<T = unknown>(key: string, value: T): Promise<void> {
-      store.set(key, value);
-    },
+export function createMemoryCache(
+  options: MemoryCacheOptions = {}
+): KeyValueCache {
+  const { maxEntries = 250, ttlMs = 15 * 60_000 } = options;
+  const store = new Map<string, { value: unknown; expiresAt: number }>();
+  const inFlight = new Map<string, Promise<unknown>>();
+
+  const get = async <T = unknown>(key: string): Promise<T | undefined> => {
+    const entry = store.get(key);
+    if (!entry) return undefined;
+    if (Date.now() > entry.expiresAt) {
+      store.delete(key);
+      return undefined;
+    }
+    // Refresh insertion order for LRU eviction
+    store.delete(key);
+    store.set(key, entry);
+    return entry.value as T;
   };
+
+  const set = async <T = unknown>(key: string, value: T): Promise<void> => {
+    if (store.has(key)) {
+      store.delete(key);
+    } else if (store.size >= maxEntries) {
+      const oldestKey = store.keys().next().value;
+      if (oldestKey !== undefined) store.delete(oldestKey);
+    }
+    store.set(key, { value, expiresAt: Date.now() + ttlMs });
+  };
+
+  const getOrLoad = async <T>(
+    key: string,
+    loader: () => Promise<T>
+  ): Promise<T> => {
+    const cached = await get<T>(key);
+    if (cached !== undefined) return cached;
+
+    const pending = inFlight.get(key) as Promise<T> | undefined;
+    if (pending) return pending;
+
+    const task = (async () => {
+      try {
+        const fresh = await loader();
+        await set(key, fresh);
+        return fresh;
+      } finally {
+        inFlight.delete(key);
+      }
+    })();
+
+    inFlight.set(key, task);
+    return task;
+  };
+
+  return { get, set, getOrLoad };
 }
 
 /**
  * Creates a FIFO rate limiter that enforces at least `minIntervalMs` between task starts.
- *
- * TODO (internals): If you want to practice async queues, inspect or customize how
- * promises chain here so concurrent callers wait their turn without race conditions.
  */
 export function createRateLimiter(minIntervalMs: number): RateLimiter {
   let nextAllowedTime = 0;
@@ -84,3 +136,9 @@ export function createDefaultContext(
     userAgent: overrides.userAgent,
   };
 }
+
+/**
+ * Shared application-wide `ProviderContext` singleton so all browser/CLI services
+ * share one bounded cache and enforce global per-upstream rate limits.
+ */
+export const defaultProviderContext = createDefaultContext();

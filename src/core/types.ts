@@ -24,19 +24,16 @@ export const SolverEngineIdSchema = z.enum([
 ]);
 export type SolverEngineId = z.infer<typeof SolverEngineIdSchema>;
 
-export type OsrmProfile = "car" | "bike" | "foot";
+export const OsrmProfileSchema = z.enum(["car", "bike", "foot"]);
+export type OsrmProfile = z.infer<typeof OsrmProfileSchema>;
+
 export type LocalMatrixSource = "osrm-table" | "haversine-offline";
 export type ByokProviderId = "google-routes" | "openrouteservice";
 
 export type RouteStatus = "unoptimized" | "optimizing" | "optimized" | "stale";
-export type RouteEvent =
-  | "OPTIMIZE_START"
-  | "OPTIMIZE_SUCCESS"
-  | "OPTIMIZE_ERROR"
-  | "INPUTS_CHANGED";
 
 /**
- * Dynamic per-solver configuration passed from Row 3 of the UI into the pipeline/solver.
+ * Dynamic per-solver configuration passed from the UI into the pipeline/solver.
  */
 export interface SolverSpecificOptions {
   /** For `osrm-trip`: FOSSGIS OSRM travel profile ("car" | "bike" | "foot", default: "car") */
@@ -52,92 +49,106 @@ export interface SolverSpecificOptions {
 }
 
 export interface LatLng {
-  lat: number;
-  lng: number;
+  readonly lat: number;
+  readonly lng: number;
 }
 
-export class GeoLocation implements LatLng {
-  id: string;
-  name: string;
+/**
+ * Plain, immutable JSON-serializable location DTO.
+ * Kept as a plain object (no class prototype) so Svelte 5 `$state` proxies,
+ * `localStorage`, and future CLI/MCP boundaries serialize and clone it cleanly.
+ */
+export interface GeoLocation extends LatLng {
+  readonly id: string;
+  readonly name: string;
+  readonly building?: string;
+  readonly street?: string;
+  readonly unit?: string;
+  readonly city?: string;
+  readonly state?: string;
+  readonly zip?: string;
+  readonly country?: string;
+  /** Optional OpenStreetMap identifier (e.g. "W123456" or "N7890") for exact Nominatim lookup */
+  readonly osmId?: string;
+  /** Street-level address (e.g. "57 Van Steuben Road" or "32 South Road #302"), falling back to name or coordinates. */
+  readonly address: string;
+  /** Complete postal address for Google Maps & full display. */
+  readonly fullAddress: string;
+}
+
+export interface GeoLocationInit {
+  id?: string;
+  name?: string;
   building?: string;
   street?: string;
   unit?: string;
+  address?: string;
+  fullAddress?: string;
+  lat: number;
+  lng: number;
   city?: string;
   state?: string;
   zip?: string;
   country?: string;
-  /** Optional OpenStreetMap identifier (e.g. "W123456" or "N7890") for exact Nominatim lookup */
   osmId?: string;
-  /** Street-level address (e.g. "57 Van Steuben Road" or "32 South Road #302"), falling back to name or coordinates. */
-  address: string;
-  /** Complete postal address for Google Maps & full display . */
-  fullAddress: string;
-  lat: number;
-  lng: number;
+}
 
-  constructor(init: {
-    id?: string;
-    name?: string;
-    building?: string;
-    street?: string;
-    unit?: string;
-    address?: string;
-    fullAddress?: string;
-    lat: number;
-    lng: number;
-    city?: string;
-    state?: string;
-    zip?: string;
-    country?: string;
-    osmId?: string;
-  }) {
-    this.lat = init.lat;
-    this.lng = init.lng;
-    this.building = init.building?.trim() || undefined;
-    this.street = init.street?.trim() || undefined;
-    this.unit = init.unit?.trim() || undefined;
-    this.city = init.city?.trim() || undefined;
-    this.state = init.state?.trim() || undefined;
-    this.zip = init.zip?.trim() || undefined;
-    this.country = init.country?.trim() || undefined;
-    this.osmId = init.osmId?.trim() || undefined;
+/**
+ * Pure factory that normalizes optional address components into an immutable `GeoLocation` plain object.
+ */
+export function createGeoLocation(init: GeoLocationInit): GeoLocation {
+  const building = init.building?.trim() || undefined;
+  const street = init.street?.trim() || undefined;
+  const unit = init.unit?.trim() || undefined;
+  const city = init.city?.trim() || undefined;
+  const state = init.state?.trim() || undefined;
+  const zip = init.zip?.trim() || undefined;
+  const country = init.country?.trim() || undefined;
+  const osmId = init.osmId?.trim() || undefined;
 
-    // 1. Assemble street-level line (e.g. "32 South Road #302"), falling back to name or coordinates
-    const coordsFallback = `${init.lat.toFixed(5)}, ${init.lng.toFixed(5)}`;
-    const unitPart = this.unit
-      ? this.unit.startsWith("#")
-        ? this.unit
-        : `#${this.unit}`
-      : undefined;
-    const streetLine = [this.building, this.street, unitPart]
-      .filter(Boolean)
-      .join(" ");
+  // 1. Assemble street-level line (e.g. "32 South Road #302"), falling back to name or coordinates
+  const coordsFallback = `${init.lat.toFixed(5)}, ${init.lng.toFixed(5)}`;
+  const unitPart = unit ? (unit.startsWith("#") ? unit : `#${unit}`) : undefined;
+  const streetLine = [building, street, unitPart].filter(Boolean).join(" ");
 
-    this.address =
-      init.address?.trim() ||
-      streetLine ||
-      init.name?.trim() ||
-      coordsFallback;
-    this.name = init.name?.trim() || this.address;
+  const address =
+    init.address?.trim() ||
+    streetLine ||
+    init.name?.trim() ||
+    coordsFallback;
+  const name = init.name?.trim() || address;
 
-    // 2. Assemble full postal address for Google Maps (omitting POI name & zip so geocoders resolve cleanly)
-    const assembledFull = [
-      this.address !== coordsFallback ? this.address : undefined,
-      this.city,
-      this.state,
-      this.country,
-    ]
-      .filter((part): part is string => Boolean(part))
-      .filter((part, idx, arr) => arr.indexOf(part) === idx)
-      .join(", ");
+  // 2. Assemble full postal address for Google Maps (omitting POI name & zip so geocoders resolve cleanly)
+  const assembledFull = [
+    address !== coordsFallback ? address : undefined,
+    city,
+    state,
+    country,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .filter((part, idx, arr) => arr.indexOf(part) === idx)
+    .join(", ");
 
-    this.fullAddress =
-      init.fullAddress?.trim() || assembledFull || coordsFallback;
+  const fullAddress = init.fullAddress?.trim() || assembledFull || coordsFallback;
+  const id =
+    init.id?.trim() || `${init.lat.toFixed(6)},${init.lng.toFixed(6)}-${name}`;
 
-    this.id =
-      init.id?.trim() ||
-      `${init.lat.toFixed(6)},${init.lng.toFixed(6)}-${this.name}`;
-  }
+  return {
+    id,
+    name,
+    building,
+    street,
+    unit,
+    city,
+    state,
+    zip,
+    country,
+    osmId,
+    address,
+    fullAddress,
+    lat: init.lat,
+    lng: init.lng,
+  };
 }
 
 export interface OrderedStopLeg {
@@ -169,11 +180,11 @@ export interface OptimizedRouteResult {
   totalDurationSeconds: number;
   totalDistanceMeters: number;
   routeGeoJson: GeoJSON.FeatureCollection;
-  googleMapsLinks: string[];
+  googleMapsLinks: BridgedNavLink[];
 }
 
 export interface OptimizerConfig {
   mode: RouteMode;
   solverEngine: SolverEngineId;
-  solverOptions?: SolverSpecificOptions; // Dynamic solver-specific options from Row 3
+  solverOptions?: SolverSpecificOptions;
 }

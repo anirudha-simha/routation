@@ -9,7 +9,7 @@
   import Home from "@lucide/svelte/icons/home";
   import MapPin from "@lucide/svelte/icons/map-pin";
   import X from "@lucide/svelte/icons/x";
-  import { GeoLocation } from "../../core";
+  import { type GeoLocation } from "../../core";
   import { routeStore } from "../state.svelte";
   import LocationSearchBox from "./LocationSearchBox.svelte";
 
@@ -30,7 +30,7 @@
   let dragItems = $derived(values);
 
   function addGeoLocation(loc: GeoLocation) {
-    const entry = new GeoLocation({ ...loc, id: crypto.randomUUID() });
+    const entry: GeoLocation = { ...loc, id: crypto.randomUUID() };
     values = single ? [entry] : [...values, entry];
     routeStore.selectLocation(entry.id);
   }

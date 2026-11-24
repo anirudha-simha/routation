@@ -7,7 +7,7 @@
   import Phone from "@lucide/svelte/icons/phone";
   import Utensils from "@lucide/svelte/icons/utensils";
   import { resource } from "runed";
-  import { GeoLocation, infoCardGenerator } from "../../core";
+  import { type GeoLocation, infoCardGenerator } from "../../core";
 
   interface Props {
     location: GeoLocation;

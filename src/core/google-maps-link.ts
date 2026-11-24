@@ -1,18 +1,43 @@
-import { GeoLocation, OsrmProfile } from "./types";
+import { BridgedNavLink, GeoLocation, OsrmProfile } from "./types";
+
+/**
+ * Splits an array into overlapping chunks of at most `maxChunkSize` items,
+ * where the last item of chunk K is repeated as the first item ("bridge") of chunk K+1.
+ */
+export function chunkWithOverlap<T>(
+  items: readonly T[],
+  maxChunkSize: number
+): T[][] {
+  if (maxChunkSize < 2) {
+    throw new Error("maxChunkSize must be at least 2");
+  }
+  if (items.length === 0) return [];
+  if (items.length <= maxChunkSize) return [items.slice()];
+
+  const chunks: T[][] = [];
+  const stride = maxChunkSize - 1;
+  for (let i = 0; i < items.length - 1; i += stride) {
+    const slice = items.slice(i, i + maxChunkSize);
+    if (slice.length < 2) break;
+    chunks.push(slice);
+  }
+  return chunks;
+}
 
 export class GoogleMapsLinkBuilder {
   private static readonly BASE_URL = "https://www.google.com/maps/dir/";
   private static readonly SEARCH_BASE_URL =
     "https://www.google.com/maps/search/";
   private static readonly EMBED_BASE_URL = "https://maps.google.com/maps";
-  private static readonly MAX_STOPS_PER_LINK = 9;
+  static readonly MAX_STOPS_PER_LINK = 9;
+
   private static readonly TRAVEL_MODE_MAP: Record<OsrmProfile, string> = {
     car: "driving",
     bike: "bicycling",
     foot: "walking",
   };
 
-  private static formatCoords(stop: GeoLocation): string {
+  static formatCoords(stop: GeoLocation): string {
     return `${stop.lat.toFixed(6)},${stop.lng.toFixed(6)}`;
   }
 
@@ -31,8 +56,19 @@ export class GoogleMapsLinkBuilder {
   }
 
   /**
+   * Formats a stop for turn-by-turn directions (`origin`, `destination`, `waypoints`).
+   * Uses `fullAddress` when a street-level address exists; otherwise falls back to exact coordinates
+   * so parks or landmarks without street numbers never mis-route to a city center.
+   */
+  private static formatDirectionsStop(stop: GeoLocation): string {
+    if (stop.street) {
+      return stop.fullAddress;
+    }
+    return GoogleMapsLinkBuilder.formatCoords(stop);
+  }
+
+  /**
    * Builds a keyless Google Maps Universal (`api=1`) Place Search link for a single location.
-   * Clicking this opens Google Maps (or the native mobile app) pinned to the location's Place Card.
    */
   static buildPlaceSearchUrl(stop: GeoLocation): string {
     const params = new URLSearchParams({
@@ -44,7 +80,6 @@ export class GoogleMapsLinkBuilder {
 
   /**
    * Builds a keyless Google Maps `output=embed` URL suitable for an on-demand `<iframe>` preview.
-   * Note: We omit `ll=` when a named query is present so Google Maps snaps to the matched POI card.
    */
   static buildPlaceEmbedUrl(stop: GeoLocation, zoom = 15): string {
     const params = new URLSearchParams({
@@ -56,83 +91,52 @@ export class GoogleMapsLinkBuilder {
   }
 
   /**
-   * Iterates through `orderedStops` and produces Google Maps Universal (`api=1`) directions links.
-   * If there are more than `maxStopsPerLink` (default 9),
-   * it splits the route into bridged chunks where the destination of link K is the origin of link K+1.
+   * Produces bridged Google Maps Universal (`api=1`) navigation links for an ordered itinerary.
+   * When `orderedStops.length > maxStopsPerLink` (default 9), consecutive links share a 1-stop
+   * overlap ("bridge waypoint") so navigation continues seamlessly.
    */
-  buildDirectionsLink(
-    travelMode: OsrmProfile,
-    orderedStops: GeoLocation[],
+  static buildDirectionsLinks(
+    orderedStops: readonly GeoLocation[],
+    travelMode: OsrmProfile = "car",
     maxStopsPerLink = GoogleMapsLinkBuilder.MAX_STOPS_PER_LINK
-  ): string[] {
+  ): BridgedNavLink[] {
     if (orderedStops.length < 2) {
       return [];
     }
 
-    const chunks: GeoLocation[][] = this.chunkStopsWithBridge(
-      orderedStops,
-      maxStopsPerLink
-    );
-    return chunks.map((chunk: GeoLocation[]) =>
-      this.buildUrl(travelMode, chunk)
-    );
-  }
+    const chunks = chunkWithOverlap(orderedStops, maxStopsPerLink);
+    const stride = maxStopsPerLink - 1;
 
-  /**
-   * Builds a single Google Maps directions URL for a chunk of 2..N ordered stops.
-   */
-  buildUrl(travelMode: OsrmProfile, chunk: GeoLocation[]): string {
-    const params = new URLSearchParams({
-      api: "1",
-      origin: this.extractOrigin(chunk),
-      destination: this.extractDestination(chunk),
-      travelmode: GoogleMapsLinkBuilder.TRAVEL_MODE_MAP[travelMode],
+    return chunks.map((chunk, idx) => {
+      const first = chunk[0];
+      const last = chunk[chunk.length - 1];
+      const startNum = idx * stride + 1;
+      const endNum = idx * stride + chunk.length;
+
+      const params = new URLSearchParams({
+        api: "1",
+        origin: GoogleMapsLinkBuilder.formatDirectionsStop(first),
+        destination: GoogleMapsLinkBuilder.formatDirectionsStop(last),
+        travelmode: GoogleMapsLinkBuilder.TRAVEL_MODE_MAP[travelMode],
+      });
+
+      const waypoints = chunk
+        .slice(1, -1)
+        .map((stop) => GoogleMapsLinkBuilder.formatDirectionsStop(stop))
+        .join("|");
+      if (waypoints.length > 0) {
+        params.set("waypoints", waypoints);
+      }
+
+      return {
+        batchNumber: idx + 1,
+        stopRangeLabel: `Part ${idx + 1}: Stops #${startNum}–#${endNum}`,
+        fromName: first.name,
+        toName: last.name,
+        stopCount: chunk.length,
+        bridgeStopId: idx > 0 ? first.id : undefined,
+        googleMapsUrl: `${GoogleMapsLinkBuilder.BASE_URL}?${params.toString()}`,
+      };
     });
-
-    const waypoints = this.extractWaypoints(chunk);
-    if (waypoints.length > 0) {
-      params.set("waypoints", waypoints);
-    }
-
-    return `${GoogleMapsLinkBuilder.BASE_URL}?${params.toString()}`;
-  }
-
-  private extractOrigin(orderedStops: GeoLocation[]): string {
-    return orderedStops[0].fullAddress;
-  }
-
-  private extractWaypoints(orderedStops: GeoLocation[]): string {
-    // Only include intermediate stops (exclude index 0 origin and last index destination)
-    return orderedStops
-      .slice(1, orderedStops.length - 1)
-      .map((stop) => stop.fullAddress)
-      .join("|");
-  }
-
-  private extractDestination(orderedStops: GeoLocation[]): string {
-    return orderedStops[orderedStops.length - 1].fullAddress;
-  }
-
-  /**
-   * Splits `orderedStops` into overlapping chunks of at most `maxChunkSize` stops,
-   * repeating the last stop of chunk K as the first stop ("bridge") of chunk K+1.
-   */
-  private chunkStopsWithBridge(
-    orderedStops: GeoLocation[],
-    maxChunkSize: number
-  ): GeoLocation[][] {
-    if (maxChunkSize < 2) {
-      throw new Error("maxStopsPerLink must be at least 2.");
-    }
-
-    const chunks: GeoLocation[][] = [];
-    // Step by (maxChunkSize - 1) so the last stop of chunk K becomes the first stop of chunk K+1
-    const stride = maxChunkSize - 1;
-    for (let i = 0; i < orderedStops.length - 1; i += stride) {
-      const slice = orderedStops.slice(i, i + maxChunkSize);
-      if (slice.length < 2) break;
-      chunks.push(slice);
-    }
-    return chunks;
   }
 }

@@ -1,4 +1,9 @@
-import { GeoLocation, LatLng } from "../types";
+import {
+  createDefaultContext,
+  defaultProviderContext,
+  type ProviderContext,
+} from "../context";
+import { createGeoLocation, GeoLocation, LatLng } from "../types";
 import { AddressLookup } from "./geocoder";
 
 interface PhotonProperties {
@@ -23,26 +28,47 @@ export class PhotonGeoCoder extends AddressLookup {
    */
   private static readonly LOCATION_BIAS_SCALE = "0.1";
 
+  private readonly ctx: ProviderContext;
+
+  constructor(ctxOrFetch: ProviderContext | typeof fetch = defaultProviderContext) {
+    super();
+    this.ctx =
+      typeof ctxOrFetch === "function"
+        ? createDefaultContext({
+            fetch: ctxOrFetch,
+            defaultLimiter: { schedule: (fn) => fn() },
+          })
+        : ctxOrFetch;
+  }
+
   override async addressLookup(
     address: string,
-    bias?: LatLng
+    bias?: LatLng,
+    signal?: AbortSignal
   ): Promise<GeoLocation[]> {
-    const features = await this.searchPhotonSuggestions(address, bias);
+    const features = await this.searchPhotonSuggestions(address, bias, signal);
     const locations = features
       .map((f) => this.formatPhotonFeature(f))
       .filter((loc): loc is GeoLocation => loc !== null);
 
-    // Deduplicate by `name|fullAddress` so distinct businesses in the same plaza aren't collapsed
+    // Deduplicate by `name|fullAddress|roundedCoords` so distinct branches on the same road survive
     const seen = new Set<string>();
     return locations.filter((loc) => {
-      const key = `${loc.name}|${loc.fullAddress}`;
+      const key = `${loc.name}|${loc.fullAddress}|${loc.lat.toFixed(3)},${loc.lng.toFixed(3)}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
   }
 
-  override async latLongLookup(coords: LatLng): Promise<GeoLocation[]> {
+  override async latLongLookup(
+    coords: LatLng,
+    signal?: AbortSignal
+  ): Promise<GeoLocation[]> {
+    const cacheKey = `photon:rev:${coords.lat.toFixed(5)},${coords.lng.toFixed(5)}`;
+    const cached = await this.ctx.cache.get<GeoLocation[]>(cacheKey);
+    if (cached) return cached;
+
     const params = new URLSearchParams({
       lat: String(coords.lat),
       lon: String(coords.lng),
@@ -51,8 +77,9 @@ export class PhotonGeoCoder extends AddressLookup {
     });
 
     try {
-      const res = await fetch(
-        `https://photon.komoot.io/reverse?${params.toString()}`
+      const res = await this.fetchPhoton(
+        `https://photon.komoot.io/reverse?${params.toString()}`,
+        signal
       );
       if (res.ok) {
         const data = (await res.json()) as GeoJSON.FeatureCollection<
@@ -62,13 +89,16 @@ export class PhotonGeoCoder extends AddressLookup {
         const mapped = (data.features ?? [])
           .map((f) => this.formatPhotonFeature(f))
           .filter((loc): loc is GeoLocation => loc !== null);
-        if (mapped.length > 0) return mapped;
+        if (mapped.length > 0) {
+          await this.ctx.cache.set(cacheKey, mapped);
+          return mapped;
+        }
       }
     } catch {
       // Fall through to raw coordinate GeoLocation below
     }
 
-    return [new GeoLocation({ lat: coords.lat, lng: coords.lng })];
+    return [createGeoLocation({ lat: coords.lat, lng: coords.lng })];
   }
 
   /**
@@ -77,12 +107,21 @@ export class PhotonGeoCoder extends AddressLookup {
    */
   async searchPhotonSuggestions(
     query: string,
-    bias?: LatLng
+    bias?: LatLng,
+    signal?: AbortSignal
   ): Promise<GeoJSON.Feature<GeoJSON.Point, PhotonProperties>[]> {
     const trimmed = query.trim();
     if (trimmed.length < 3) {
       return [];
     }
+
+    const biasKey = bias ? `${bias.lat.toFixed(3)},${bias.lng.toFixed(3)}` : "none";
+    const cacheKey = `photon:q:${trimmed.toLowerCase()}:${biasKey}`;
+    const cached =
+      await this.ctx.cache.get<
+        GeoJSON.Feature<GeoJSON.Point, PhotonProperties>[]
+      >(cacheKey);
+    if (cached) return cached;
 
     const params = new URLSearchParams({
       q: trimmed,
@@ -98,18 +137,32 @@ export class PhotonGeoCoder extends AddressLookup {
     }
 
     try {
-      const res = await fetch(
-        `https://photon.komoot.io/api/?${params.toString()}`
+      const res = await this.fetchPhoton(
+        `https://photon.komoot.io/api/?${params.toString()}`,
+        signal
       );
       if (!res.ok) return [];
       const data = (await res.json()) as GeoJSON.FeatureCollection<
         GeoJSON.Point,
         PhotonProperties
       >;
-      return data.features ?? [];
+      const features = data.features ?? [];
+      await this.ctx.cache.set(cacheKey, features);
+      return features;
     } catch {
       return [];
     }
+  }
+
+  private fetchPhoton(url: string, signal?: AbortSignal): Promise<Response> {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (this.ctx.userAgent) {
+      headers["User-Agent"] = this.ctx.userAgent;
+    }
+    return this.ctx.defaultLimiter.schedule(() => {
+      signal?.throwIfAborted();
+      return this.ctx.fetch(url, { headers, signal });
+    });
   }
 
   /**
@@ -124,9 +177,11 @@ export class PhotonGeoCoder extends AddressLookup {
 
     const [lng, lat] = coords;
     const osmId =
-      p.osm_type && p.osm_id ? `${p.osm_type.toUpperCase()}${p.osm_id}` : undefined;
+      p.osm_type && p.osm_id
+        ? `${p.osm_type.toUpperCase()}${p.osm_id}`
+        : undefined;
 
-    return new GeoLocation({
+    return createGeoLocation({
       name: p.name,
       building: p.housenumber,
       street: p.street,
@@ -140,3 +195,5 @@ export class PhotonGeoCoder extends AddressLookup {
     });
   }
 }
+
+export const photonGeoCoder = new PhotonGeoCoder();

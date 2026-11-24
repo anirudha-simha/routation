@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   createDefaultContext,
+  createGeoLocation,
   createRateLimiter,
-  GeoLocation,
   haversineMeters,
   orientRoundTripLoop,
   OsrmSolver,
@@ -64,19 +64,19 @@ describe("orientRoundTripLoop", () => {
 });
 
 describe("OsrmSolver (fixture tests)", () => {
-  const home = new GeoLocation({
+  const home = createGeoLocation({
     id: "home",
     name: "Home",
     lat: 37.7955,
     lng: -122.3937,
   });
-  const s1 = new GeoLocation({
+  const s1 = createGeoLocation({
     id: "s1",
     name: "Stop 1",
     lat: 37.8024,
     lng: -122.4058,
   });
-  const s2 = new GeoLocation({
+  const s2 = createGeoLocation({
     id: "s2",
     name: "Stop 2",
     lat: 37.7544,
