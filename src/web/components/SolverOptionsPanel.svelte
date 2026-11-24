@@ -2,7 +2,7 @@
   import { routeStore } from "../state.svelte";
 </script>
 
-{#if routeStore.solverEngine === "osrm-trip"}
+{#if routeStore.solverEngine === "osrm-trip" || routeStore.solverEngine === "osrm-route"}
   <div class="flex flex-col gap-1.5 border-t border-slate-800/80 pt-2.5">
     <div class="flex items-center justify-between">
       <span class="text-xs font-medium text-slate-300">Travel Profile</span>

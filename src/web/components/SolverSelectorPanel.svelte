@@ -10,26 +10,26 @@
   }[] = [
     {
       id: "osrm-trip",
-      title: "OSRM Server",
-      hint: "Delegates TSP solving and road-polyline generation to FOSSGIS OSRM's /trip API, then orients or cuts the loop at Home.",
+      title: "OSRM Optimize",
+      hint: "Reorders your stops for the fastest road tour via FOSSGIS OSRM /trip, then orients or cuts the loop at Home.",
+      implemented: true,
+    },
+    {
+      id: "osrm-route",
+      title: "Keep My Order",
+      hint: "Preserves your exact drag-and-drop stop sequence while fetching real road geometry and turn-by-turn leg ETAs via FOSSGIS /route.",
       implemented: true,
     },
     {
       id: "no-solver",
-      title: "No Solver",
-      hint: "Keeps your current stop order as-is without reordering, estimates distances, and connects the pins directly on the map.",
+      title: "Straight Line",
+      hint: "Offline mode (0 API calls): keeps your current stop order, estimates crow-flies distances, and connects pins directly.",
       implemented: true,
     },
     {
       id: "ts-local",
       title: "Local Solver",
       hint: "Upcoming: Held-Karp exact DP (≤ 15 stops) + 2-Opt/Or-Opt local search directly in your browser.",
-      implemented: false,
-    },
-    {
-      id: "byok-api",
-      title: "BYOK API",
-      hint: "Upcoming: Bring your own routing API key (kept locally in browser) for live traffic optimization.",
       implemented: false,
     },
   ];
@@ -50,7 +50,7 @@
           if (option.implemented) routeStore.solverEngine = option.id;
         }}
         title={option.implemented ? option.hint : "Coming soon"}
-        class="flex items-center justify-between gap-1 rounded-lg border px-2.5 py-2 text-left transition { !option.implemented
+        class="flex items-center justify-between gap-1 rounded-lg border px-2.5 py-2 text-left transition {!option.implemented
           ? 'border-slate-800/60 bg-slate-900/30 text-slate-500 opacity-60 cursor-not-allowed'
           : routeStore.solverEngine === option.id
             ? 'border-blue-500 bg-blue-600/20 text-white cursor-pointer'

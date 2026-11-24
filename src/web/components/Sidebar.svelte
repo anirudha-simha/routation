@@ -28,12 +28,21 @@
     }
   }
 
-  const BUTTON_LABELS: Record<RouteStatus, string> = {
-    unoptimized: "Optimize Route",
-    optimizing: "Optimizing Route...",
-    optimized: "Optimize Route",
-    stale: "Re-Optimize Route (Changes Pending)",
-  };
+  let primaryButtonLabel = $derived.by(() => {
+    const isManualOrder =
+      routeStore.solverEngine === "osrm-route" ||
+      routeStore.solverEngine === "no-solver";
+    const status: RouteStatus = routeStore.status;
+    if (status === "optimizing") {
+      return isManualOrder ? "Calculating Route..." : "Optimizing Route...";
+    }
+    if (status === "stale") {
+      return isManualOrder
+        ? "Update Route (Keep Order)"
+        : "Re-Optimize Route (Changes Pending)";
+    }
+    return isManualOrder ? "Calculate Route (Keep Order)" : "Optimize Route";
+  });
 </script>
 
 <aside
@@ -92,14 +101,27 @@
     <SolverOptionsPanel />
   </CollapsibleSection>
 
-  <button
-    type="button"
-    onclick={() => routeStore.optimize()}
-    disabled={routeStore.status === "optimizing"}
-    class="ui-btn-primary"
-  >
-    {BUTTON_LABELS[routeStore.status]}
-  </button>
+  <div class="flex flex-col gap-2">
+    <button
+      type="button"
+      onclick={() => routeStore.optimize()}
+      disabled={routeStore.status === "optimizing"}
+      class="ui-btn-primary"
+    >
+      {primaryButtonLabel}
+    </button>
+
+    {#if routeStore.status === "stale" && routeStore.solverEngine === "osrm-trip"}
+      <button
+        type="button"
+        onclick={() => routeStore.keepOrderAndRoute()}
+        title="Keep your manual drag-and-drop stop sequence while updating road polylines, leg ETAs, and Google Maps links"
+        class="w-full rounded-xl border border-slate-700 bg-slate-800/80 px-3 py-2 text-xs font-medium text-slate-200 hover:border-blue-500/60 hover:bg-slate-800 hover:text-white cursor-pointer transition"
+      >
+        Keep Current Order (Update Roads & ETAs)
+      </button>
+    {/if}
+  </div>
 
   {#if routeStore.status === "stale"}
     <div

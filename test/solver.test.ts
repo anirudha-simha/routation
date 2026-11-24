@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 import {
   createDefaultContext,
   createGeoLocation,
@@ -432,5 +432,90 @@ describe("createRateLimiter cancellation", () => {
 
     await expect(p1).resolves.toBe("first");
     await expect(p2).rejects.toThrow();
+  });
+});
+
+describe("OsrmRouteSolver (Keep My Order road routing)", () => {
+  it("preserves exact manual stop order and fetches road geometry via /route/v1", async () => {
+    const home = createGeoLocation({
+      id: "home",
+      name: "Home",
+      lat: 37.7955,
+      lng: -122.3937,
+    });
+    const s1 = createGeoLocation({
+      id: "s1",
+      name: "Stop 1",
+      lat: 37.8024,
+      lng: -122.4058,
+    });
+    const s2 = createGeoLocation({
+      id: "s2",
+      name: "Stop 2",
+      lat: 37.7544,
+      lng: -122.4477,
+    });
+
+    const calledUrls: string[] = [];
+    const mockFetch: typeof fetch = async (input) => {
+      calledUrls.push(String(input));
+      return new Response(
+        JSON.stringify({
+          code: "Ok",
+          routes: [
+            {
+              distance: 18200,
+              duration: 1420,
+              legs: [
+                { distance: 8200, duration: 620 },
+                { distance: 6000, duration: 480 },
+                { distance: 4000, duration: 320 },
+              ],
+              geometry: {
+                type: "LineString",
+                coordinates: [
+                  [home.lng, home.lat],
+                  [s2.lng, s2.lat],
+                  [s1.lng, s1.lat],
+                  [home.lng, home.lat],
+                ],
+              },
+            },
+          ],
+        }),
+        { status: 200 }
+      );
+    };
+
+    const ctx = createDefaultContext({
+      fetch: mockFetch,
+      defaultLimiter: createRateLimiter(0),
+    });
+
+    const res = await runRouteOptimizationPipeline(
+      {
+        home,
+        stops: [s2, s1],
+        config: {
+          mode: "ROUND_TRIP_FASTEST",
+          solverEngine: "osrm-route",
+          solverOptions: { osrmProfile: "bike" },
+        },
+      },
+      ctx
+    );
+
+    expect(calledUrls).toHaveLength(1);
+    expect(calledUrls[0]).toContain(
+      "routing.openstreetmap.de/routed-bike/route/v1/bike/"
+    );
+    expect(res.orderedLegs.map((l) => l.stop.id)).toEqual([
+      "home",
+      "s2",
+      "s1",
+      "home",
+    ]);
+    expect(res.totalDurationSeconds).toBe(1420);
+    expect(res.routeGeoJson.features).toHaveLength(1);
   });
 });

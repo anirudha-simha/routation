@@ -41,25 +41,29 @@ interface OsrmRouteResponse {
 }
 
 /**
- * OSRM Trip API solver backed by FOSSGIS (`routing.openstreetmap.de/routed-{car,bike,foot}`).
- *
- * - Open-ended modes (`OPEN_END_START_AT_HOME`, `OPEN_START_END_AT_HOME`) use FOSSGIS's native
- *   `roundtrip=false` with `source=first&destination=any` or `source=any&destination=last` in 1 call.
- * - Round-trip modes use `roundtrip=true&source=first` + `orientRoundTripLoop(...)`, only calling `/route`
- *   if the round-trip loop needs to be reversed to satisfy `END_CLOSEST` / `START_CLOSEST`.
+ * Shared validation, URL builder, and response mappers for FOSSGIS OSRM solvers (`/trip` and `/route`).
  */
-export class OsrmSolver extends RouteSolver {
-  readonly id = "osrm-trip" as const;
-  readonly label = "OSRM Trip API (FOSSGIS Server TSP)";
-
-  private static readonly DEFAULT_ORIGIN = "https://routing.openstreetmap.de";
+abstract class BaseOsrmSolver extends RouteSolver {
+  protected static readonly DEFAULT_ORIGIN = "https://routing.openstreetmap.de";
 
   override validate(input: SolverInput): void {
     super.validate(input);
-    if (input.stops.length > 99) {
-      throw new Error(
-        "OSRM supports at most 99 stops (+ 1 Home = 100 coordinates) per request."
-      );
+    if (input.stops.length > 98) {
+      // Round-trip `[home, ...stops, home]` sends `stops.length + 2` coordinates to `/route` (<= 100 cap)
+      if (
+        this.id === "osrm-route" &&
+        input.mode !== "OPEN_END_START_AT_HOME" &&
+        input.mode !== "OPEN_START_END_AT_HOME"
+      ) {
+        throw new Error(
+          "OSRM round-trip routing supports at most 98 stops (+ start/end Home = 100 coordinates)."
+        );
+      }
+      if (input.stops.length > 99) {
+        throw new Error(
+          "OSRM supports at most 99 stops (+ 1 Home = 100 coordinates) per request."
+        );
+      }
     }
 
     input.solverOptions ??= {};
@@ -72,7 +76,7 @@ export class OsrmSolver extends RouteSolver {
 
     const baseUrl =
       input.solverOptions.osrmBaseUrl?.trim() ||
-      `${OsrmSolver.DEFAULT_ORIGIN}/routed-${profile}`;
+      `${BaseOsrmSolver.DEFAULT_ORIGIN}/routed-${profile}`;
 
     let parsedUrl: URL;
     try {
@@ -108,7 +112,7 @@ export class OsrmSolver extends RouteSolver {
 
     if (
       !input.solverOptions.allowCustomOsrmOrigin &&
-      parsedUrl.origin !== OsrmSolver.DEFAULT_ORIGIN
+      parsedUrl.origin !== BaseOsrmSolver.DEFAULT_ORIGIN
     ) {
       throw new Error(
         `Untrusted OSRM origin "${parsedUrl.origin}". Set allowCustomOsrmOrigin to use a self-hosted server.`
@@ -118,11 +122,112 @@ export class OsrmSolver extends RouteSolver {
     input.solverOptions.osrmBaseUrl = `${parsedUrl.origin}${parsedUrl.pathname.replace(/\/+$/, "")}`;
   }
 
-  /**
-   * Orders input coordinates for OSRM `/trip`.
-   * - `OPEN_START_END_AT_HOME` places `home` last so `destination=last` pins Home as the end.
-   * - All other modes start at Home (`source=first`), so `home` must be index `0`.
-   */
+  protected resolveEndpointConfig(input: SolverInput): {
+    baseUrl: string;
+    osrmProfileSegment: string;
+  } {
+    const profile: OsrmProfile = input.solverOptions!.osrmProfile!;
+    return {
+      baseUrl: input.solverOptions!.osrmBaseUrl!,
+      osrmProfileSegment: profile === "car" ? "driving" : profile,
+    };
+  }
+
+  protected toFeatureCollection(
+    geometry: GeoJSON.LineString
+  ): GeoJSON.FeatureCollection {
+    return {
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          properties: {},
+          geometry,
+        },
+      ],
+    };
+  }
+
+  protected toLegMetrics(legs: OsrmLeg[]): RouteLegMetric[] {
+    return legs.map((leg) => ({
+      distanceMeters: leg.distance,
+      durationSeconds: leg.duration,
+    }));
+  }
+
+  protected buildUrl(
+    baseUrl: string,
+    service: "trip" | "route",
+    profileSegment: string,
+    nodes: GeoLocation[],
+    params: URLSearchParams
+  ): string {
+    const cleanBase = baseUrl.replace(/\/+$/, "");
+    const coords = nodes.map((n) => `${n.lng},${n.lat}`).join(";");
+    return `${cleanBase}/${service}/v1/${profileSegment}/${coords}?${params.toString()}`;
+  }
+
+  protected async fetchRouteGeometry(
+    baseUrl: string,
+    osrmProfileSegment: string,
+    orderedStops: GeoLocation[],
+    ctx: ProviderContext
+  ): Promise<OsrmRouteOrTrip> {
+    const routeParams = new URLSearchParams({
+      steps: "false",
+      geometries: "geojson",
+      overview: "full",
+    });
+
+    const routeData = await this.fetchJson<OsrmRouteResponse>(
+      this.buildUrl(
+        baseUrl,
+        "route",
+        osrmProfileSegment,
+        orderedStops,
+        routeParams
+      ),
+      ctx
+    );
+
+    if (
+      routeData.code !== "Ok" ||
+      !routeData.routes?.[0] ||
+      routeData.routes[0].legs.length !== orderedStops.length - 1
+    ) {
+      throw new Error(
+        `OSRM /route failed (${routeData.code}): ${routeData.message ?? "no route returned"}`
+      );
+    }
+
+    return routeData.routes[0];
+  }
+
+  protected async fetchJson<T>(url: string, ctx: ProviderContext): Promise<T> {
+    const headers: Record<string, string> = {};
+    if (ctx.userAgent) {
+      headers["User-Agent"] = ctx.userAgent;
+    }
+
+    const res = await ctx.defaultLimiter.schedule(() =>
+      ctx.fetch(url, { headers })
+    );
+
+    if (!res.ok) {
+      throw new Error(`OSRM HTTP ${res.status}: ${res.statusText}`);
+    }
+
+    return (await res.json()) as T;
+  }
+}
+
+/**
+ * OSRM Trip API solver (`osrm-trip`) backed by FOSSGIS (`routing.openstreetmap.de/routed-{car,bike,foot}`).
+ */
+export class OsrmSolver extends BaseOsrmSolver {
+  readonly id = "osrm-trip" as const;
+  readonly label = "OSRM Optimize (FOSSGIS TSP)";
+
   stopsOrder(
     mode: RouteMode,
     home: GeoLocation,
@@ -141,9 +246,6 @@ export class OsrmSolver extends RouteSolver {
     }
   }
 
-  /**
-   * Builds the query parameters for OSRM `/trip` based on the routing mode.
-   */
   buildTripParams(mode: RouteMode): URLSearchParams {
     const tripParams = new URLSearchParams({
       steps: "false",
@@ -180,10 +282,7 @@ export class OsrmSolver extends RouteSolver {
     ctx: ProviderContext
   ): Promise<SolverOutput> {
     this.validate(input);
-
-    const profile: OsrmProfile = input.solverOptions!.osrmProfile!;
-    const osrmProfileSegment = profile === "car" ? "driving" : profile;
-    const baseUrl = input.solverOptions!.osrmBaseUrl!;
+    const { baseUrl, osrmProfileSegment } = this.resolveEndpointConfig(input);
 
     const requestNodes = this.stopsOrder(input.mode, input.home, input.stops);
     const tripParams = this.buildTripParams(input.mode);
@@ -211,13 +310,11 @@ export class OsrmSolver extends RouteSolver {
 
     const trip = tripData.trips[0];
 
-    // OSRM returns `waypoints` in input order; `waypoint_index` is the solved visit position
     const solvedInputIndices = new Array<number>(requestNodes.length);
     tripData.waypoints.forEach((wp, inputIdx) => {
       solvedInputIndices[wp.waypoint_index] = inputIdx;
     });
 
-    // Open modes: OSRM solved the exact open path directly in 1 request!
     if (
       input.mode === "OPEN_END_START_AT_HOME" ||
       input.mode === "OPEN_START_END_AT_HOME"
@@ -230,7 +327,6 @@ export class OsrmSolver extends RouteSolver {
       };
     }
 
-    // Round-trip modes: apply desired loop orientation (Fastest / End Closest / Start Closest)
     const forwardFirstLegSeconds = trip.legs[0]?.duration ?? 0;
     const forwardLastLegSeconds =
       trip.legs[trip.legs.length - 1]?.duration ?? 0;
@@ -244,7 +340,6 @@ export class OsrmSolver extends RouteSolver {
 
     const orderedStops = orderedIndices.map((idx) => requestNodes[idx]);
 
-    // Forward round-trip: reuse `/trip` legs & road geometry directly (1 request total)
     if (!reversed) {
       return {
         orderedStops,
@@ -253,31 +348,16 @@ export class OsrmSolver extends RouteSolver {
       };
     }
 
-    // Reversed round-trip: fetch `/route` once so road geometry & one-way leg times match reversed order
-    const routeParams = new URLSearchParams({
-      steps: "false",
-      geometries: "geojson",
-      overview: "full",
-    });
-
-    const routeData = await this.fetchJson<OsrmRouteResponse>(
-      this.buildUrl(baseUrl, "route", osrmProfileSegment, orderedStops, routeParams),
+    const route = await this.fetchRouteGeometry(
+      baseUrl,
+      osrmProfileSegment,
+      orderedStops,
       ctx
     );
-
-    if (routeData.code !== "Ok" || !routeData.routes?.[0]) {
-      throw new Error(
-        `OSRM /route failed (${routeData.code}): ${routeData.message ?? "no route returned"}`
-      );
-    }
-
-    const route = routeData.routes[0];
     const reversedFirstLegSeconds = route.legs[0]?.duration ?? Infinity;
     const reversedLastLegSeconds =
       route.legs[route.legs.length - 1]?.duration ?? Infinity;
 
-    // On asymmetric one-way street grids, reversing the cycle can occasionally make the
-    // target start/end leg slower than the forward tour; keep forward `/trip` if so.
     const reversalMadeTargetWorse =
       (input.mode === "ROUND_TRIP_END_CLOSEST_TO_HOME" &&
         reversedLastLegSeconds > forwardLastLegSeconds) ||
@@ -301,55 +381,45 @@ export class OsrmSolver extends RouteSolver {
       routeGeoJson: this.toFeatureCollection(route.geometry),
     };
   }
+}
 
-  private toFeatureCollection(
-    geometry: GeoJSON.LineString
-  ): GeoJSON.FeatureCollection {
-    return {
-      type: "FeatureCollection",
-      features: [
-        {
-          type: "Feature",
-          properties: {},
-          geometry,
-        },
-      ],
-    };
-  }
+/**
+ * Manual-order road router (`osrm-route`): preserves the user's exact stop sequence,
+ * attaches Home at the start/end per `mode`, and fetches real turn-by-turn road geometry
+ * and per-leg travel durations from FOSSGIS `/route/v1/{driving,bike,foot}` in 1 request.
+ */
+export class OsrmRouteSolver extends BaseOsrmSolver {
+  readonly id = "osrm-route" as const;
+  readonly label = "Keep My Order (FOSSGIS Roads & ETAs)";
 
-  private toLegMetrics(legs: OsrmLeg[]): RouteLegMetric[] {
-    return legs.map((leg) => ({
-      distanceMeters: leg.distance,
-      durationSeconds: leg.duration,
-    }));
-  }
+  override async solve(
+    input: SolverInput,
+    ctx: ProviderContext
+  ): Promise<SolverOutput> {
+    this.validate(input);
+    const { baseUrl, osrmProfileSegment } = this.resolveEndpointConfig(input);
+    const { home, stops, mode } = input;
 
-  private buildUrl(
-    baseUrl: string,
-    service: "trip" | "route",
-    profileSegment: string,
-    nodes: GeoLocation[],
-    params: URLSearchParams
-  ): string {
-    const cleanBase = baseUrl.replace(/\/+$/, "");
-    const coords = nodes.map((n) => `${n.lng},${n.lat}`).join(";");
-    return `${cleanBase}/${service}/v1/${profileSegment}/${coords}?${params.toString()}`;
-  }
-
-  private async fetchJson<T>(url: string, ctx: ProviderContext): Promise<T> {
-    const headers: Record<string, string> = {};
-    if (ctx.userAgent) {
-      headers["User-Agent"] = ctx.userAgent;
+    let orderedStops: GeoLocation[];
+    if (mode === "OPEN_END_START_AT_HOME") {
+      orderedStops = [home, ...stops];
+    } else if (mode === "OPEN_START_END_AT_HOME") {
+      orderedStops = [...stops, home];
+    } else {
+      orderedStops = [home, ...stops, home];
     }
 
-    const res = await ctx.defaultLimiter.schedule(() =>
-      ctx.fetch(url, { headers })
+    const route = await this.fetchRouteGeometry(
+      baseUrl,
+      osrmProfileSegment,
+      orderedStops,
+      ctx
     );
 
-    if (!res.ok) {
-      throw new Error(`OSRM HTTP ${res.status}: ${res.statusText}`);
-    }
-
-    return (await res.json()) as T;
+    return {
+      orderedStops,
+      legs: this.toLegMetrics(route.legs),
+      routeGeoJson: this.toFeatureCollection(route.geometry),
+    };
   }
 }

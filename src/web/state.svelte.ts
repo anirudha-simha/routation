@@ -24,6 +24,7 @@ import defaults from "../resources/defaults.json";
 
 const IMPLEMENTED_SOLVERS: ReadonlySet<SolverEngineId> = new Set([
   "osrm-trip",
+  "osrm-route",
   "no-solver",
 ]);
 
@@ -217,7 +218,7 @@ class RouteStore {
   }
 
   get solverBadge(): string {
-    return this.solverEngine === "osrm-trip"
+    return this.solverEngine === "osrm-trip" || this.solverEngine === "osrm-route"
       ? `${this.solverEngine} • ${this.osrmProfile}`
       : this.solverEngine;
   }
@@ -292,6 +293,11 @@ class RouteStore {
     } finally {
       this.isDroppingPin = false;
     }
+  }
+
+  async keepOrderAndRoute(): Promise<void> {
+    this.solverEngine = "osrm-route";
+    await this.optimize();
   }
 
   async optimize(): Promise<void> {

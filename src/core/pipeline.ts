@@ -1,7 +1,7 @@
 import { defaultProviderContext, ProviderContext } from "./context";
 import { GoogleMapsLinkBuilder } from "./google-maps-link";
 import { NoSolver } from "./solvers/no-solver";
-import { OsrmSolver } from "./solvers/osrm";
+import { OsrmRouteSolver, OsrmSolver } from "./solvers/osrm";
 import { RouteSolver, SolverInput, SolverOutput } from "./solvers/solver";
 import {
   GeoLocation,
@@ -26,6 +26,8 @@ function getSolver(engineId: SolverEngineId): RouteSolver {
   switch (engineId) {
     case "no-solver":
       return new NoSolver();
+    case "osrm-route":
+      return new OsrmRouteSolver();
     case "osrm-trip":
       return new OsrmSolver();
     default:

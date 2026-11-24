@@ -18,6 +18,7 @@ export type RouteMode = z.infer<typeof RouteModeSchema>;
  */
 export const SolverEngineIdSchema = z.enum([
   "osrm-trip",
+  "osrm-route",
   "no-solver",
   "ts-local",
   "byok-api",
