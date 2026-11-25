@@ -546,4 +546,36 @@ describe("URL #hash route sharing (native gzip + Zod)", () => {
       })
     ).rejects.toThrow("out-of-range");
   });
+
+  it("runs Zod validation in jitless mode without invoking dynamic Function/eval under strict CSP", async () => {
+    const OriginalFunction = globalThis.Function;
+    let dynamicFunctionCalls = 0;
+    globalThis.Function = new Proxy(OriginalFunction, {
+      construct(target, args, newTarget) {
+        dynamicFunctionCalls++;
+        return Reflect.construct(target, args, newTarget);
+      },
+      apply(target, thisArg, args) {
+        dynamicFunctionCalls++;
+        return Reflect.apply(target, thisArg, args);
+      },
+    });
+
+    try {
+      const parsed = parseStoredGeoLocations(
+        JSON.stringify([{ name: "Test Stop", lat: 37.77, lng: -122.41 }])
+      );
+      expect(parsed).toHaveLength(1);
+      const hash = await encodeSharedRouteHash({
+        stops: parsed,
+        mode: "ROUND_TRIP_FASTEST",
+        solverEngine: "osrm-trip",
+        osrmProfile: "car",
+      });
+      expect((await parseSharedRouteHash(hash)).status).toBe("ok");
+      expect(dynamicFunctionCalls).toBe(0);
+    } finally {
+      globalThis.Function = OriginalFunction;
+    }
+  });
 });

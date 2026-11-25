@@ -3,9 +3,11 @@
   import {
     LngLatBounds,
     setWorkerUrl,
+    type ErrorEvent as MapErrorEvent,
     type ExpressionSpecification,
     type Map,
     type MapMouseEvent,
+    type StyleSpecification,
   } from "maplibre-gl";
   import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
   import { watch } from "runed";
@@ -24,6 +26,31 @@
   setWorkerUrl(workerUrl);
 
   const OPENFREEMAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
+  /**
+   * Inline, zero-TileJSON OpenStreetMap raster style used automatically if an adblocker
+   * (e.g. uBlock Origin filter rules blocking `tiles.openfreemap.org/planet`) or upstream
+   * outage prevents OpenFreeMap vector metadata/tiles from loading.
+   */
+  const OSM_RASTER_FALLBACK_STYLE: StyleSpecification = {
+    version: 8,
+    sources: {
+      "osm-raster": {
+        type: "raster",
+        tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+        tileSize: 256,
+        maxzoom: 19,
+        attribution:
+          '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
+      },
+    },
+    layers: [
+      {
+        id: "osm-raster-layer",
+        type: "raster",
+        source: "osm-raster",
+      },
+    ],
+  };
   const DEFAULT_CENTER: [number, number] = [-122.4194, 37.7749];
 
   const ACTIVE_LINE_GRADIENT: ExpressionSpecification = [
@@ -51,6 +78,33 @@
   let map = $state<Map | undefined>(undefined);
   let containerEl = $state<HTMLDivElement | null>(null);
   let dropPinMode = $state(false);
+  let usingFallbackBasemap = $state(false);
+  let hasInitialFit = false;
+
+  let activeMapStyle = $derived<string | StyleSpecification>(
+    usingFallbackBasemap ? OSM_RASTER_FALLBACK_STYLE : OPENFREEMAP_STYLE
+  );
+
+  function ensureInitialFit() {
+    if (hasInitialFit || !map) return;
+    hasInitialFit = true;
+    map.resize();
+    fitAllPins();
+  }
+
+  function handleMapError(ev: MapErrorEvent) {
+    if (usingFallbackBasemap) return;
+    const err = ev.error as { url?: string; message?: string } | undefined;
+    const sourceId = (ev as MapErrorEvent & { sourceId?: string }).sourceId;
+    const details = `${err?.url ?? ""} ${err?.message ?? ""}`;
+    if (
+      details.includes("openfreemap.org") ||
+      sourceId === "openmaptiles" ||
+      !map?.isStyleLoaded()
+    ) {
+      usingFallbackBasemap = true;
+    }
+  }
 
   function handleMapClick(e: MapMouseEvent) {
     if (!dropPinMode) return;
@@ -189,12 +243,13 @@
     cursor={dropPinMode ? "crosshair" : undefined}
     onclick={handleMapClick}
     oncontextmenu={handleMapContextMenu}
-    onload={() => {
-      map?.resize();
-      fitAllPins();
+    onerror={handleMapError}
+    onload={ensureInitialFit}
+    onstyledata={() => {
+      if (usingFallbackBasemap) ensureInitialFit();
     }}
     class="h-full w-full"
-    style={OPENFREEMAP_STYLE}
+    style={activeMapStyle}
     center={DEFAULT_CENTER}
     zoom={11}
     autoloadGlobalCss={false}

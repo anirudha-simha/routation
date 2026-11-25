@@ -8,12 +8,12 @@
       Baseline Content Security Policy for static GitHub Pages deployment:
       - script-src 'self': blocks injected inline scripts
       - worker-src 'self' blob:: MapLibre GL JS spawns WebGL tile-parsing Web Workers
-      - connect-src: whitelists only active keyless geo providers (Photon, Nominatim, Wikipedia, FOSSGIS OSRM, OpenFreeMap)
+      - connect-src: whitelists only active keyless geo providers (Photon, Nominatim, Wikipedia, FOSSGIS OSRM, OpenFreeMap + OSM raster fallback)
       - form-action 'none': blocks unauthorized form submissions (does not inherit from default-src)
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://tiles.openfreemap.org https://*.wikimedia.org; font-src 'self' data: https://tiles.openfreemap.org; worker-src 'self' blob:; frame-src https://www.google.com https://maps.google.com; connect-src 'self' https://photon.komoot.io https://nominatim.openstreetmap.org https://en.wikipedia.org https://routing.openstreetmap.de https://tiles.openfreemap.org; form-action 'none'; object-src 'none'; base-uri 'self';"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://tiles.openfreemap.org https://tile.openstreetmap.org https://*.wikimedia.org; font-src 'self' data: https://tiles.openfreemap.org; worker-src 'self' blob:; frame-src https://www.google.com https://maps.google.com; connect-src 'self' https://photon.komoot.io https://nominatim.openstreetmap.org https://en.wikipedia.org https://routing.openstreetmap.de https://tiles.openfreemap.org https://tile.openstreetmap.org; form-action 'none'; object-src 'none'; base-uri 'self';"
     />
     <title>Routation — Multi-Stop Route Optimizer</title>
   </head>

@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+// Disable Zod v4's `new Function("")` JIT capability probe so strict `script-src 'self'` CSPs
+// never log `eval` violations or fire `securitypolicyviolation` events in Firefox/Chrome.
+z.config({ jitless: true });
+
 /**
  * The 5 Home-relative directional routing modes.
  */
