@@ -10,6 +10,7 @@ import {
   GeoLocation,
   GoogleMapsLinkBuilder,
   InfoCardGenerator,
+  parseSharedRouteHash,
   parseStoredGeoLocations,
   RouteModeSchema,
 } from "../src/core";
@@ -471,12 +472,12 @@ describe("Storage boundary Zod deserializers", () => {
   });
 });
 
-describe("URL #hash route sharing (lz-string + Zod)", () => {
-  it("round-trips Home, stops, mode, and profile into a compact #r= hash", () => {
+describe("URL #hash route sharing (native gzip + Zod)", () => {
+  it("round-trips Home, stops, mode, and profile into a compact #r= hash", async () => {
     const home = makeFakeStop(0);
     const stops = [makeFakeStop(1), makeFakeStop(2, false)];
 
-    const shareUrl = buildShareableRouteUrl(
+    const shareUrl = await buildShareableRouteUrl(
       "https://routation.anirudhasimha.com/#old",
       {
         home,
@@ -491,7 +492,7 @@ describe("URL #hash route sharing (lz-string + Zod)", () => {
       true
     );
     const hashPart = shareUrl.slice(shareUrl.indexOf("#"));
-    const decoded = decodeSharedRouteHash(hashPart);
+    const decoded = await decodeSharedRouteHash(hashPart);
 
     expect(decoded).not.toBeNull();
     expect(decoded?.home?.name).toBe("Stop 0");
@@ -501,19 +502,48 @@ describe("URL #hash route sharing (lz-string + Zod)", () => {
     expect(decoded?.osrmProfile).toBe("bike");
   });
 
-  it("rejects malformed, empty, or tampered #r= hashes safely", () => {
-    expect(decodeSharedRouteHash("")).toBeNull();
-    expect(decodeSharedRouteHash("#other=123")).toBeNull();
-    expect(decodeSharedRouteHash("#r=not-valid-lz-json")).toBeNull();
+  it("rejects malformed, mutated, or tampered #r= hashes with explicit invalid status", async () => {
+    expect(await parseSharedRouteHash("")).toEqual({ status: "none" });
+    expect(await parseSharedRouteHash("#")).toEqual({ status: "none" });
+    expect((await parseSharedRouteHash("#other=123")).status).toBe("invalid");
+    expect((await parseSharedRouteHash("#r=not-valid-gzip")).status).toBe(
+      "invalid"
+    );
 
-    // Tampered out-of-bounds latitude
-    const badStop = { ...makeFakeStop(1), lat: 999 };
-    const badHash = encodeSharedRouteHash({
-      stops: [badStop],
+    const validHash = await encodeSharedRouteHash({
+      home: makeFakeStop(0),
+      stops: [makeFakeStop(1), makeFakeStop(2)],
       mode: "ROUND_TRIP_FASTEST",
       solverEngine: "osrm-trip",
       osrmProfile: "car",
     });
-    expect(decodeSharedRouteHash(badHash)).toBeNull();
+
+    // Mutating the final character (caught by canonical Base64URL check)
+    const lastChar = validHash[validHash.length - 1];
+    const flippedEnd =
+      validHash.slice(0, -1) + (lastChar === "A" ? "B" : "A");
+    expect((await parseSharedRouteHash(flippedEnd)).status).toBe("invalid");
+    expect(await decodeSharedRouteHash(flippedEnd)).toBeNull();
+
+    // Mutating a middle character (caught by gzip RFC 1952 CRC-32 / deflate integrity check)
+    const midIdx = Math.floor(validHash.length / 2);
+    const midChar = validHash[midIdx];
+    const flippedMid =
+      validHash.slice(0, midIdx) +
+      (midChar === "A" ? "B" : "A") +
+      validHash.slice(midIdx + 1);
+    expect((await parseSharedRouteHash(flippedMid)).status).toBe("invalid");
+    expect(await decodeSharedRouteHash(flippedMid)).toBeNull();
+
+    // Out-of-bounds coordinates throw at encode time
+    const badStop = { ...makeFakeStop(1), lat: 999 };
+    await expect(
+      encodeSharedRouteHash({
+        stops: [badStop],
+        mode: "ROUND_TRIP_FASTEST",
+        solverEngine: "osrm-trip",
+        osrmProfile: "car",
+      })
+    ).rejects.toThrow("out-of-range");
   });
 });

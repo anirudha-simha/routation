@@ -1,7 +1,7 @@
 import {
-  createDefaultContext,
-  defaultProviderContext,
+  buildJsonHeaders,
   type ProviderContext,
+  resolveProviderContext,
 } from "../context";
 import { GoogleMapsLinkBuilder } from "../google-maps-link";
 import { GeoLocation } from "../types";
@@ -57,6 +57,7 @@ interface LookupOutcome<T> {
 
 const STOP_WORDS = new Set(["the", "and", "san", "park"]);
 const MIN_MATCH_SCORE = 0.4;
+const SEARCH_VIEWBOX_RADIUS_DEG = 0.02;
 
 export class InfoCardGenerator {
   private static readonly NOMINATIM_BASE =
@@ -66,15 +67,8 @@ export class InfoCardGenerator {
 
   private readonly ctx: ProviderContext;
 
-  constructor(ctxOrFetch: ProviderContext | typeof fetch = defaultProviderContext) {
-    this.ctx =
-      typeof ctxOrFetch === "function"
-        ? createDefaultContext({
-            fetch: ctxOrFetch,
-            nominatimLimiter: { schedule: (fn) => fn() },
-            defaultLimiter: { schedule: (fn) => fn() },
-          })
-        : ctxOrFetch;
+  constructor(ctxOrFetch?: ProviderContext | typeof fetch) {
+    this.ctx = resolveProviderContext(ctxOrFetch);
   }
 
   /**
@@ -177,14 +171,6 @@ export class InfoCardGenerator {
     return card;
   }
 
-  private buildHeaders(): Record<string, string> {
-    const headers: Record<string, string> = { Accept: "application/json" };
-    if (this.ctx.userAgent) {
-      headers["User-Agent"] = this.ctx.userAgent;
-    }
-    return headers;
-  }
-
   private async fetchNominatimDetails(
     location: GeoLocation,
     signal?: AbortSignal
@@ -197,10 +183,12 @@ export class InfoCardGenerator {
         : undefined;
 
       if (location.osmId) {
+        // Exact OSM object lookup when we have an `osmId` from Photon search
         url = `${InfoCardGenerator.NOMINATIM_BASE}/lookup?osm_ids=${encodeURIComponent(location.osmId)}&format=json&extratags=1`;
       } else if (cleanedName && !/^\d/.test(cleanedName)) {
-        const d = 0.02;
-        const viewbox = `${(location.lng - d).toFixed(5)},${(location.lat + d).toFixed(5)},${(location.lng + d).toFixed(5)},${(location.lat - d).toFixed(5)}`;
+        // Bounded name search within ~2km of the pin avoids `/reverse` snapping to nearby street furniture
+        const radius = SEARCH_VIEWBOX_RADIUS_DEG;
+        const viewbox = `${(location.lng - radius).toFixed(5)},${(location.lat + radius).toFixed(5)},${(location.lng + radius).toFixed(5)},${(location.lat - radius).toFixed(5)}`;
         const query = location.city
           ? `${cleanedName}, ${location.city}`
           : cleanedName;
@@ -217,7 +205,7 @@ export class InfoCardGenerator {
         url = `${InfoCardGenerator.NOMINATIM_BASE}/reverse?lat=${location.lat}&lon=${location.lng}&zoom=18&format=json&extratags=1`;
       }
 
-      const headers = this.buildHeaders();
+      const headers = buildJsonHeaders(this.ctx);
       const res = await this.ctx.nominatimLimiter.schedule(
         () => this.ctx.fetch(url, { headers, signal }),
         signal
@@ -239,6 +227,8 @@ export class InfoCardGenerator {
       if (items.length === 0) return { data: null, transientError: false };
       if (location.osmId) return { data: items[0], transientError: false };
 
+      // Keep candidates whose OSM `name` meaningfully matches `stopName`,
+      // then prefer the richest object (e.g., landmark building over a transit stop with the same name).
       const matching = stopName
         ? items.filter(
             (item) =>
@@ -261,6 +251,13 @@ export class InfoCardGenerator {
     }
   }
 
+  /**
+   * Unified Wikipedia query against `w/api.php`:
+   * - If given an explicit `exactTitle` (from OSM's `extratags.wikipedia`), fetches `titles=...` directly.
+   * - Otherwise runs a 400m coordinate `generator=geosearch` for up to 15 candidates (with `pilimit=max`
+   *   and `exlimit=max` so MediaWiki populates thumbnails & extracts for every candidate, not just #1)
+   *   and picks the highest-scoring title match.
+   */
   private async fetchWikipedia(
     location: GeoLocation,
     exactTitle?: string,
@@ -297,7 +294,7 @@ export class InfoCardGenerator {
         params.set("ggslimit", "15");
       }
 
-      const headers = this.buildHeaders();
+      const headers = buildJsonHeaders(this.ctx);
       const url = `${InfoCardGenerator.WIKI_ACTION_API}?${params.toString()}`;
       const res = await this.ctx.defaultLimiter.schedule(
         () => this.ctx.fetch(url, { headers, signal }),
@@ -320,6 +317,7 @@ export class InfoCardGenerator {
       }
       if (!stopName) return { data: null, transientError: false };
 
+      // Score all returned candidates and pick the best match above threshold
       let bestPage: WikiPageItem | null = null;
       let bestScore = 0;
 
@@ -339,42 +337,56 @@ export class InfoCardGenerator {
     }
   }
 
+  /**
+   * Scores how closely a candidate title (Wikipedia or OSM) matches a stop's name (`0` to `1`).
+   * Exact matches score `1.0`; matches after stripping disambiguators like `"(San Francisco)"`
+   * score `0.9`; partial matches use Dice coefficient over meaningful tokens so `"Chase Center"`
+   * beats `"UCSF/Chase Center station"` and `"Japanese Tea Garden"` beats `"San Francisco Botanical Garden"`.
+   */
   static scoreTitleMatch(query: string, candidate: string): number {
-    const norm = (s: string) =>
-      s
+    const normalize = (value: string) =>
+      value
         .toLowerCase()
         .replace(/[^a-z0-9\s]/g, " ")
         .replace(/\s+/g, " ")
         .trim();
 
-    const qFull = norm(query);
-    const cFull = norm(candidate);
-    if (!qFull || !cFull) return 0;
-    if (qFull === cFull) return 1.0;
+    const normalizedQuery = normalize(query);
+    const normalizedCandidate = normalize(candidate);
+    if (!normalizedQuery || !normalizedCandidate) return 0;
+    if (normalizedQuery === normalizedCandidate) return 1.0;
 
-    const qBase = norm(InfoCardGenerator.stripParenthetical(query));
-    const cBase = norm(InfoCardGenerator.stripParenthetical(candidate));
-    if (qBase && cBase && qBase === cBase) return 0.9;
+    const baseQuery = normalize(InfoCardGenerator.stripParenthetical(query));
+    const baseCandidate = normalize(
+      InfoCardGenerator.stripParenthetical(candidate)
+    );
+    if (baseQuery && baseCandidate && baseQuery === baseCandidate) return 0.9;
 
-    const tokenize = (s: string) =>
-      s
+    const tokenize = (value: string) =>
+      value
         .split(" ")
-        .filter((w) => w.length >= 3 && !STOP_WORDS.has(w));
+        .filter((word) => word.length >= 3 && !STOP_WORDS.has(word));
 
-    const qTokens = new Set(tokenize(qBase || qFull));
-    const cTokens = new Set(tokenize(cBase || cFull));
+    const queryTokens = new Set(tokenize(baseQuery || normalizedQuery));
+    const candidateTokens = new Set(
+      tokenize(baseCandidate || normalizedCandidate)
+    );
 
-    if (qTokens.size === 0 || cTokens.size === 0) {
-      return qFull.includes(cFull) || cFull.includes(qFull) ? 0.5 : 0;
+    if (queryTokens.size === 0 || candidateTokens.size === 0) {
+      return normalizedQuery.includes(normalizedCandidate) ||
+        normalizedCandidate.includes(normalizedQuery)
+        ? 0.5
+        : 0;
     }
 
     let overlap = 0;
-    for (const token of qTokens) {
-      if (cTokens.has(token)) overlap++;
+    for (const token of queryTokens) {
+      if (candidateTokens.has(token)) overlap++;
     }
     if (overlap === 0) return 0;
 
-    const dice = (2 * overlap) / (qTokens.size + cTokens.size);
+    // Dice coefficient scaled below exact/disambiguated matches (max 0.85)
+    const dice = (2 * overlap) / (queryTokens.size + candidateTokens.size);
     return Math.min(0.85, dice);
   }
 
@@ -401,6 +413,7 @@ export class InfoCardGenerator {
 
     const colonIdx = trimmed.indexOf(":");
     const lang = trimmed.slice(0, colonIdx).toLowerCase();
+    // Only query en.wikipedia.org for English tags (or titles containing a colon without a 2-3 char lang prefix)
     if (lang === "en") return trimmed.slice(colonIdx + 1).trim() || undefined;
     if (/^[a-z]{2,3}(-[a-z]+)?$/.test(lang)) return undefined;
     return trimmed;

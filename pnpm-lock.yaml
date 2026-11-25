@@ -172,9 +172,6 @@ importers:
       bits-ui:
         specifier: ^2.21.0
         version: 2.21.0(@internationalized/date@3.12.4)(svelte@5.58.0)
-      lz-string:
-        specifier: ^1.5.0
-        version: 1.5.0
       maplibre-gl:
         specifier: 6.4.1
         version: 6.4.1

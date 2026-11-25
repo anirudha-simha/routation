@@ -1,7 +1,7 @@
 import {
-  createDefaultContext,
-  defaultProviderContext,
+  buildJsonHeaders,
   type ProviderContext,
+  resolveProviderContext,
 } from "../context";
 import { createGeoLocation, GeoLocation, LatLng } from "../types";
 import { AddressLookup } from "./geocoder";
@@ -30,15 +30,9 @@ export class PhotonGeoCoder extends AddressLookup {
 
   private readonly ctx: ProviderContext;
 
-  constructor(ctxOrFetch: ProviderContext | typeof fetch = defaultProviderContext) {
+  constructor(ctxOrFetch?: ProviderContext | typeof fetch) {
     super();
-    this.ctx =
-      typeof ctxOrFetch === "function"
-        ? createDefaultContext({
-            fetch: ctxOrFetch,
-            defaultLimiter: { schedule: (fn) => fn() },
-          })
-        : ctxOrFetch;
+    this.ctx = resolveProviderContext(ctxOrFetch);
   }
 
   override async addressLookup(
@@ -48,7 +42,7 @@ export class PhotonGeoCoder extends AddressLookup {
   ): Promise<GeoLocation[]> {
     const features = await this.searchPhotonSuggestions(address, bias, signal);
     const locations = features
-      .map((f) => this.formatPhotonFeature(f))
+      .map((feature) => this.formatPhotonFeature(feature))
       .filter((loc): loc is GeoLocation => loc !== null);
 
     // Deduplicate by `name|fullAddress|roundedCoords` AND `loc.id` so Svelte keyed `#each` never collides
@@ -88,7 +82,7 @@ export class PhotonGeoCoder extends AddressLookup {
           PhotonProperties
         >;
         const mapped = (data.features ?? [])
-          .map((f) => this.formatPhotonFeature(f))
+          .map((feature) => this.formatPhotonFeature(feature))
           .filter((loc): loc is GeoLocation => loc !== null);
         if (mapped.length > 0) {
           await this.ctx.cache.set(cacheKey, mapped);
@@ -158,10 +152,7 @@ export class PhotonGeoCoder extends AddressLookup {
   }
 
   private fetchPhoton(url: string, signal?: AbortSignal): Promise<Response> {
-    const headers: Record<string, string> = { Accept: "application/json" };
-    if (this.ctx.userAgent) {
-      headers["User-Agent"] = this.ctx.userAgent;
-    }
+    const headers = buildJsonHeaders(this.ctx);
     return this.ctx.defaultLimiter.schedule(
       () => this.ctx.fetch(url, { headers, signal }),
       signal
@@ -172,28 +163,28 @@ export class PhotonGeoCoder extends AddressLookup {
    * Maps a single Photon GeoJSON feature into our unified `GeoLocation` object.
    */
   formatPhotonFeature(
-    f: GeoJSON.Feature<GeoJSON.Point, PhotonProperties>
+    feature: GeoJSON.Feature<GeoJSON.Point, PhotonProperties>
   ): GeoLocation | null {
-    const p = f.properties;
-    const coords = f.geometry?.coordinates;
-    if (!p || !coords) return null;
+    const props = feature.properties;
+    const coords = feature.geometry?.coordinates;
+    if (!props || !coords) return null;
 
     const [lng, lat] = coords;
     const osmId =
-      p.osm_type && p.osm_id
-        ? `${p.osm_type.toUpperCase()}${p.osm_id}`
+      props.osm_type && props.osm_id
+        ? `${props.osm_type.toUpperCase()}${props.osm_id}`
         : undefined;
 
     return createGeoLocation({
-      name: p.name,
-      building: p.housenumber,
-      street: p.street,
+      name: props.name,
+      building: props.housenumber,
+      street: props.street,
       lat,
       lng,
-      city: p.city ?? p.locality ?? p.district ?? p.county,
-      state: p.state,
-      zip: p.postcode,
-      country: p.country,
+      city: props.city ?? props.locality ?? props.district ?? props.county,
+      state: props.state,
+      zip: props.postcode,
+      country: props.country,
       osmId,
     });
   }

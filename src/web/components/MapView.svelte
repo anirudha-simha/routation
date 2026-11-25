@@ -74,7 +74,7 @@
     routeStore.status === "optimized" && routeStore.result
       ? new Set(
           routeStore.result.googleMapsLinks
-            .map((l) => l.bridgeStopId)
+            .map((link) => link.bridgeStopId)
             .filter((id): id is string => Boolean(id))
         )
       : new Set<string>()
@@ -293,9 +293,9 @@
       {#if routeStore.isDroppingPin}
         Adding pin...
       {:else if dropPinMode}
-        Tap map to place • Cancel
+        Tap map • Cancel
       {:else}
-        {routeStore.home ? "+ Drop Stop Pin" : "+ Drop Home Pin"}
+        + Drop Pin
       {/if}
     </span>
   </button>

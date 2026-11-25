@@ -1,7 +1,13 @@
 import { ProviderContext } from "../context";
 import { haversineMeters } from "../geo";
-import { GeoLocation } from "../types";
-import { RouteLegMetric, RouteSolver, SolverInput, SolverOutput } from "./solver";
+import {
+  attachHomeToStops,
+  RouteLegMetric,
+  RouteSolver,
+  SolverInput,
+  SolverOutput,
+  toLineStringFeatureCollection,
+} from "./solver";
 
 const APPROX_METERS_PER_SECOND = 13.4112; // ~30 mph average straight-line estimate
 
@@ -19,16 +25,11 @@ export class NoSolver extends RouteSolver {
     _ctx: ProviderContext
   ): Promise<SolverOutput> {
     this.validate(input);
-    const { home, stops, mode } = input;
-
-    let orderedStops: GeoLocation[];
-    if (mode === "OPEN_END_START_AT_HOME") {
-      orderedStops = [home, ...stops];
-    } else if (mode === "OPEN_START_END_AT_HOME") {
-      orderedStops = [...stops, home];
-    } else {
-      orderedStops = [home, ...stops, home];
-    }
+    const orderedStops = attachHomeToStops(
+      input.home,
+      input.stops,
+      input.mode
+    );
 
     const legs: RouteLegMetric[] = [];
     for (let i = 0; i < orderedStops.length - 1; i++) {
@@ -42,22 +43,9 @@ export class NoSolver extends RouteSolver {
       legs.push({ distanceMeters, durationSeconds });
     }
 
-    const routeGeoJson: GeoJSON.FeatureCollection = {
-      type: "FeatureCollection",
-      features:
-        orderedStops.length >= 2
-          ? [
-              {
-                type: "Feature",
-                properties: {},
-                geometry: {
-                  type: "LineString",
-                  coordinates: orderedStops.map((s) => [s.lng, s.lat]),
-                },
-              },
-            ]
-          : [],
-    };
+    const routeGeoJson = toLineStringFeatureCollection(
+      orderedStops.map((stop) => [stop.lng, stop.lat])
+    );
 
     return {
       orderedStops,

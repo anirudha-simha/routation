@@ -3,13 +3,13 @@ import {
   buildShareableRouteUrl,
   createGeoLocation,
   createSchemaSerializer,
-  decodeSharedRouteHash,
   defaultProviderContext,
   type GeoLocation,
   type LatLng,
   type OptimizedRouteResult,
   type OsrmProfile,
   OsrmProfileSchema,
+  parseSharedRouteHash,
   parseStoredGeoLocations,
   photonGeoCoder,
   type RouteMode,
@@ -47,8 +47,8 @@ const geoLocationArraySerializer = {
   deserialize: (raw: string): GeoLocation[] => parseStoredGeoLocations(raw),
 };
 
-const DEFAULT_HOME = defaults.home.map((d) => createGeoLocation(d));
-const DEFAULT_STOPS = defaults.stops.map((d) => createGeoLocation(d));
+const DEFAULT_HOME = defaults.home.map(createGeoLocation);
+const DEFAULT_STOPS = defaults.stops.map(createGeoLocation);
 
 /**
  * Reactive application state & controller singleton (`.svelte.ts` enables Svelte 5 runes inside a class).
@@ -105,17 +105,44 @@ class RouteStore {
 
   constructor() {
     if (typeof window !== "undefined") {
-      this.#tryHydrateFromUrlHash();
+      void this.#hydrateFromUrlHash();
       window.addEventListener("hashchange", () => {
-        this.#tryHydrateFromUrlHash();
+        void this.#hydrateFromUrlHash();
       });
     }
   }
 
-  #tryHydrateFromUrlHash(): void {
-    const shared = decodeSharedRouteHash(window.location.hash);
-    if (!shared) return;
-    this.applySharedRoute(shared);
+  async #hydrateFromUrlHash(): Promise<void> {
+    const parsed = await parseSharedRouteHash(window.location.hash);
+    if (parsed.status === "none") return;
+
+    // Clear the consumed `#r=` fragment so re-pasting the same link later always triggers `hashchange`
+    this.#clearUrlHash();
+
+    if (parsed.status === "invalid") {
+      this.statusMessage = null;
+      this.errorMessage = parsed.reason;
+      return;
+    }
+
+    this.applySharedRoute(parsed.state);
+  }
+
+  #resetRouteOutput(): void {
+    this.result = null;
+    this.#solvedSignature = null;
+    this.errorMessage = null;
+    this.statusMessage = null;
+  }
+
+  #clearUrlHash(): void {
+    if (typeof window !== "undefined" && window.location.hash) {
+      window.history.replaceState(
+        null,
+        "",
+        window.location.pathname + window.location.search
+      );
+    }
   }
 
   applySharedRoute(shared: SharedRouteState): void {
@@ -127,32 +154,34 @@ class RouteStore {
       this.#solverEngine.current = shared.solverEngine;
     }
     this.#osrmProfile.current = shared.osrmProfile;
-    this.result = null;
-    this.#solvedSignature = null;
-    this.errorMessage = null;
+    this.#resetRouteOutput();
     this.statusMessage = `Loaded shared route (${shared.stops.length} ${shared.stops.length === 1 ? "stop" : "stops"}). Click Optimize Route to calculate roads.`;
   }
 
-  buildAndSyncShareUrl(): string {
+  async buildShareUrl(): Promise<string> {
     const baseHref =
-      typeof window !== "undefined" ? window.location.href : "https://routation.anirudhasimha.com/";
-    const url = buildShareableRouteUrl(baseHref, {
+      typeof window !== "undefined"
+        ? window.location.href
+        : "https://routation.anirudhasimha.com/";
+    return buildShareableRouteUrl(baseHref, {
       home: this.home,
       stops: this.stops,
       mode: this.mode,
       solverEngine: this.solverEngine,
       osrmProfile: this.osrmProfile,
     });
+  }
+
+  syncUrlHashFallback(url: string): void {
     if (typeof window !== "undefined") {
       window.history.replaceState(null, "", url);
     }
-    return url;
   }
 
   readonly #inputSignature = $derived(
     JSON.stringify([
       this.home ? `${this.home.id}:${this.home.lat},${this.home.lng}` : null,
-      this.stops.map((s) => `${s.id}:${s.lat},${s.lng}`),
+      this.stops.map((stop) => `${stop.id}:${stop.lat},${stop.lng}`),
       this.mode,
       this.solverEngine,
       this.osrmProfile,
@@ -214,7 +243,7 @@ class RouteStore {
   get selectedLocation(): GeoLocation | undefined {
     if (!this.selectedLocationId) return undefined;
     if (this.home?.id === this.selectedLocationId) return this.home;
-    return this.stops.find((s) => s.id === this.selectedLocationId);
+    return this.stops.find((stop) => stop.id === this.selectedLocationId);
   }
 
   get solverBadge(): string {
@@ -240,32 +269,16 @@ class RouteStore {
       this.selectedLocationId = null;
     }
     this.#stops.current = [];
-    this.result = null;
-    this.#solvedSignature = null;
-    this.errorMessage = null;
-    this.statusMessage = null;
+    this.#resetRouteOutput();
     this.#clearUrlHash();
   }
 
   resetDemo() {
     this.selectedLocationId = null;
-    this.#homeLocations.current = defaults.home.map((d) => createGeoLocation(d));
-    this.#stops.current = defaults.stops.map((d) => createGeoLocation(d));
-    this.result = null;
-    this.#solvedSignature = null;
-    this.errorMessage = null;
-    this.statusMessage = null;
+    this.#homeLocations.current = defaults.home.map(createGeoLocation);
+    this.#stops.current = defaults.stops.map(createGeoLocation);
+    this.#resetRouteOutput();
     this.#clearUrlHash();
-  }
-
-  #clearUrlHash() {
-    if (typeof window !== "undefined" && window.location.hash) {
-      window.history.replaceState(
-        null,
-        "",
-        window.location.pathname + window.location.search
-      );
-    }
   }
 
   async addLocationFromCoords(coords: LatLng): Promise<void> {
@@ -310,8 +323,8 @@ class RouteStore {
     }
 
     // Ensure no stop accidentally shares `home.id` (e.g. from tampered localStorage)
-    const safeStops = this.stops.map((s, idx) =>
-      s.id === home.id ? { ...s, id: `${s.id}-stop-${idx}` } : s
+    const safeStops = this.stops.map((stop, idx) =>
+      stop.id === home.id ? { ...stop, id: `${stop.id}-stop-${idx}` } : stop
     );
 
     const requestSignature = this.#inputSignature;

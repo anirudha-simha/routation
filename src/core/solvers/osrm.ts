@@ -1,11 +1,13 @@
-import { ProviderContext } from "../context";
+import { buildJsonHeaders, ProviderContext } from "../context";
 import { GeoLocation, OsrmProfile, RouteMode } from "../types";
 import {
+  attachHomeToStops,
   orientRoundTripLoop,
   RouteLegMetric,
   RouteSolver,
   SolverInput,
   SolverOutput,
+  toLineStringFeatureCollection,
 } from "./solver";
 
 interface OsrmWaypoint {
@@ -48,22 +50,20 @@ abstract class BaseOsrmSolver extends RouteSolver {
 
   override validate(input: SolverInput): void {
     super.validate(input);
-    if (input.stops.length > 98) {
-      // Round-trip `[home, ...stops, home]` sends `stops.length + 2` coordinates to `/route` (<= 100 cap)
-      if (
-        this.id === "osrm-route" &&
-        input.mode !== "OPEN_END_START_AT_HOME" &&
-        input.mode !== "OPEN_START_END_AT_HOME"
-      ) {
-        throw new Error(
-          "OSRM round-trip routing supports at most 98 stops (+ start/end Home = 100 coordinates)."
-        );
-      }
-      if (input.stops.length > 99) {
-        throw new Error(
-          "OSRM supports at most 99 stops (+ 1 Home = 100 coordinates) per request."
-        );
-      }
+    const isRoundTrip =
+      input.mode !== "OPEN_END_START_AT_HOME" &&
+      input.mode !== "OPEN_START_END_AT_HOME";
+
+    // `/route` on a round-trip sends `[home, ...stops, home]` (`stops.length + 2` points against OSRM's 100-coord cap)
+    if (this.id === "osrm-route" && isRoundTrip && input.stops.length > 98) {
+      throw new Error(
+        "OSRM round-trip routing supports at most 98 stops (+ start/end Home = 100 coordinates)."
+      );
+    }
+    if (input.stops.length > 99) {
+      throw new Error(
+        "OSRM supports at most 99 stops (+ 1 Home = 100 coordinates) per request."
+      );
     }
 
     input.solverOptions ??= {};
@@ -136,16 +136,9 @@ abstract class BaseOsrmSolver extends RouteSolver {
   protected toFeatureCollection(
     geometry: GeoJSON.LineString
   ): GeoJSON.FeatureCollection {
-    return {
-      type: "FeatureCollection",
-      features: [
-        {
-          type: "Feature",
-          properties: {},
-          geometry,
-        },
-      ],
-    };
+    return toLineStringFeatureCollection(
+      geometry.coordinates as [number, number][]
+    );
   }
 
   protected toLegMetrics(legs: OsrmLeg[]): RouteLegMetric[] {
@@ -159,11 +152,11 @@ abstract class BaseOsrmSolver extends RouteSolver {
     baseUrl: string,
     service: "trip" | "route",
     profileSegment: string,
-    nodes: GeoLocation[],
+    stops: GeoLocation[],
     params: URLSearchParams
   ): string {
     const cleanBase = baseUrl.replace(/\/+$/, "");
-    const coords = nodes.map((n) => `${n.lng},${n.lat}`).join(";");
+    const coords = stops.map((stop) => `${stop.lng},${stop.lat}`).join(";");
     return `${cleanBase}/${service}/v1/${profileSegment}/${coords}?${params.toString()}`;
   }
 
@@ -204,11 +197,7 @@ abstract class BaseOsrmSolver extends RouteSolver {
   }
 
   protected async fetchJson<T>(url: string, ctx: ProviderContext): Promise<T> {
-    const headers: Record<string, string> = {};
-    if (ctx.userAgent) {
-      headers["User-Agent"] = ctx.userAgent;
-    }
-
+    const headers = buildJsonHeaders(ctx);
     const res = await ctx.defaultLimiter.schedule(() =>
       ctx.fetch(url, { headers })
     );
@@ -284,11 +273,11 @@ export class OsrmSolver extends BaseOsrmSolver {
     this.validate(input);
     const { baseUrl, osrmProfileSegment } = this.resolveEndpointConfig(input);
 
-    const requestNodes = this.stopsOrder(input.mode, input.home, input.stops);
+    const requestStops = this.stopsOrder(input.mode, input.home, input.stops);
     const tripParams = this.buildTripParams(input.mode);
 
     const tripData = await this.fetchJson<OsrmTripResponse>(
-      this.buildUrl(baseUrl, "trip", osrmProfileSegment, requestNodes, tripParams),
+      this.buildUrl(baseUrl, "trip", osrmProfileSegment, requestStops, tripParams),
       ctx
     );
 
@@ -300,8 +289,10 @@ export class OsrmSolver extends BaseOsrmSolver {
 
     if (
       tripData.trips.length !== 1 ||
-      tripData.waypoints.length !== requestNodes.length ||
-      !tripData.waypoints.every((wp) => wp && wp.trips_index === 0)
+      tripData.waypoints.length !== requestStops.length ||
+      !tripData.waypoints.every(
+        (waypoint) => waypoint && waypoint.trips_index === 0
+      )
     ) {
       throw new Error(
         "One or more stops cannot be reached by road from the rest of the route."
@@ -310,16 +301,16 @@ export class OsrmSolver extends BaseOsrmSolver {
 
     const trip = tripData.trips[0];
 
-    const solvedInputIndices = new Array<number>(requestNodes.length);
-    tripData.waypoints.forEach((wp, inputIdx) => {
-      solvedInputIndices[wp.waypoint_index] = inputIdx;
+    const solvedInputIndices = new Array<number>(requestStops.length);
+    tripData.waypoints.forEach((waypoint, inputIndex) => {
+      solvedInputIndices[waypoint.waypoint_index] = inputIndex;
     });
 
     if (
       input.mode === "OPEN_END_START_AT_HOME" ||
       input.mode === "OPEN_START_END_AT_HOME"
     ) {
-      const orderedStops = solvedInputIndices.map((idx) => requestNodes[idx]);
+      const orderedStops = solvedInputIndices.map((idx) => requestStops[idx]);
       return {
         orderedStops,
         legs: this.toLegMetrics(trip.legs),
@@ -338,7 +329,7 @@ export class OsrmSolver extends BaseOsrmSolver {
       forwardLastLegSeconds,
     });
 
-    const orderedStops = orderedIndices.map((idx) => requestNodes[idx]);
+    const orderedStops = orderedIndices.map((idx) => requestStops[idx]);
 
     if (!reversed) {
       return {
@@ -366,7 +357,7 @@ export class OsrmSolver extends BaseOsrmSolver {
 
     if (reversalMadeTargetWorse) {
       const forwardStops = [...solvedInputIndices, 0].map(
-        (idx) => requestNodes[idx]
+        (idx) => requestStops[idx]
       );
       return {
         orderedStops: forwardStops,
@@ -398,16 +389,11 @@ export class OsrmRouteSolver extends BaseOsrmSolver {
   ): Promise<SolverOutput> {
     this.validate(input);
     const { baseUrl, osrmProfileSegment } = this.resolveEndpointConfig(input);
-    const { home, stops, mode } = input;
-
-    let orderedStops: GeoLocation[];
-    if (mode === "OPEN_END_START_AT_HOME") {
-      orderedStops = [home, ...stops];
-    } else if (mode === "OPEN_START_END_AT_HOME") {
-      orderedStops = [...stops, home];
-    } else {
-      orderedStops = [home, ...stops, home];
-    }
+    const orderedStops = attachHomeToStops(
+      input.home,
+      input.stops,
+      input.mode
+    );
 
     const route = await this.fetchRouteGeometry(
       baseUrl,

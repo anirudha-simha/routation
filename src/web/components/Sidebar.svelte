@@ -15,7 +15,7 @@
   let copyTimer: ReturnType<typeof setTimeout> | undefined;
 
   async function handleCopyShareLink() {
-    const url = routeStore.buildAndSyncShareUrl();
+    const url = await routeStore.buildShareUrl();
     try {
       await navigator.clipboard.writeText(url);
       copiedShareLink = true;
@@ -24,7 +24,9 @@
         copiedShareLink = false;
       }, 2000);
     } catch {
-      routeStore.statusMessage = "Share URL updated in your browser address bar.";
+      routeStore.syncUrlHashFallback(url);
+      routeStore.statusMessage =
+        "Share URL updated in your browser address bar.";
     }
   }
 

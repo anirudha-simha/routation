@@ -157,3 +157,32 @@ export function createDefaultContext(
  * share one bounded cache and enforce global per-upstream rate limits.
  */
 export const defaultProviderContext = createDefaultContext();
+
+/**
+ * Resolves a constructor argument that accepts either a full `ProviderContext`
+ * or a lightweight bare `fetch` function (typically injected in unit tests).
+ */
+export function resolveProviderContext(
+  ctxOrFetch: ProviderContext | typeof fetch = defaultProviderContext
+): ProviderContext {
+  if (typeof ctxOrFetch === "function") {
+    return createDefaultContext({
+      fetch: ctxOrFetch,
+      nominatimLimiter: { schedule: (fn) => fn() },
+      defaultLimiter: { schedule: (fn) => fn() },
+    });
+  }
+  return ctxOrFetch;
+}
+
+/**
+ * Builds standard JSON request headers, attaching `ctx.userAgent` when provided
+ * (required by Nominatim/OSM usage policies in Node environments).
+ */
+export function buildJsonHeaders(
+  ctx: Pick<ProviderContext, "userAgent">
+): Record<string, string> {
+  return ctx.userAgent
+    ? { Accept: "application/json", "User-Agent": ctx.userAgent }
+    : { Accept: "application/json" };
+}

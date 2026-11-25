@@ -78,6 +78,45 @@ export type RoundTripMode = Extract<
 >;
 
 /**
+ * Attaches `home` to `stops` in their current order according to `mode`
+ * (`Home -> stops`, `stops -> Home`, or `Home -> stops -> Home`).
+ */
+export function attachHomeToStops(
+  home: GeoLocation,
+  stops: readonly GeoLocation[],
+  mode: RouteMode
+): GeoLocation[] {
+  if (mode === "OPEN_END_START_AT_HOME") return [home, ...stops];
+  if (mode === "OPEN_START_END_AT_HOME") return [...stops, home];
+  return [home, ...stops, home];
+}
+
+/**
+ * Wraps `[lng, lat]` coordinates in a GeoJSON FeatureCollection containing a single
+ * LineString feature (or empty features if fewer than 2 points are supplied).
+ */
+export function toLineStringFeatureCollection(
+  coordinates: [number, number][]
+): GeoJSON.FeatureCollection {
+  if (coordinates.length < 2) {
+    return { type: "FeatureCollection", features: [] };
+  }
+  return {
+    type: "FeatureCollection",
+    features: [
+      {
+        type: "Feature",
+        properties: {},
+        geometry: {
+          type: "LineString",
+          coordinates,
+        },
+      },
+    ],
+  };
+}
+
+/**
  * Pure helper for orienting a closed round-trip loop starting at Home (`index 0`):
  *   `cycleFromHome = [0, s_1, s_2, ..., s_N]`
  *
